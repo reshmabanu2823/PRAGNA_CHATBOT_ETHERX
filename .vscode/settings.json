@@ -1,0 +1,50 @@
+{
+    "files.associations": {
+        "*.py": "python",
+        "chatbot-ui-vite/package.json": "plaintext",
+        "**/chatbot-ui-vite/package.json": "plaintext"
+    },
+    "json.schemaDownload.enable": false,
+    "json.validate.enable": false,
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "package.json",
+                "**/package.json",
+                "/package.json"
+            ],
+            "schema": {
+                "$id": "local://chatbot-ui-vite/package.schema.json",
+                "title": "Workspace local package schema",
+                "type": "object",
+                "properties": {
+                    "$schema": { "type": "string" },
+                    "name": { "type": "string" },
+                    "version": { "type": "string" },
+                    "private": { "type": "boolean" },
+                    "type": { "type": "string" },
+                    "scripts": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "dependencies": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "devDependencies": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                    }
+                },
+                "additionalProperties": true
+            }
+        }
+    ],
+    "python-envs.pythonProjects": [
+        {
+            "path": ".",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
+    ]
+}

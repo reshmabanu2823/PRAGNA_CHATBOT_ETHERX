@@ -1,0 +1,412 @@
+.input-bar-wrapper {
+  position: relative;
+  width: 100%;
+  background: linear-gradient(to top, var(--bg-primary), rgba(0,0,0,0.8));
+  border-top: 1px solid #2d2a24;
+  z-index: 10;
+  padding-top: 8px;
+}
+
+.language-select {
+  background: #1a1a1a;
+  border: 1px solid #2d2a24;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.language-select:hover {
+  background: #242420;
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: #ffd700;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.15);
+}
+
+/* ── Attachment button + popup wrap ── */
+.attach-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.attach-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid #2d2a24;
+  background: #1a1a1a;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.attach-btn:hover {
+  background: #242420;
+  color: rgba(255, 255, 255, 1);
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.attach-btn:active {
+  opacity: 0.8;
+}
+
+/* ── Popup menu ── */
+.attach-popup {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  background: #1a1a1a;
+  border: 1px solid #2d2a24;
+  border-radius: 8px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  min-width: 160px;
+  z-index: 100;
+}
+
+.attach-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.attach-popup-item:hover {
+  background: rgba(212, 175, 55, 0.1);
+  color: rgba(255, 255, 255, 1);
+}
+
+.attach-popup-item + .attach-popup-item {
+  border-top: 1px solid rgba(150, 150, 180, 0.1);
+}
+
+.popup-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── Attachment preview strip ── */
+.attachment-preview-strip {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.attachment-preview-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(26, 26, 26, 0.8);
+  border: 1px solid #2d2a24;
+  border-radius: 6px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+  max-width: 180px;
+}
+
+.chip-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.chip-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.chip-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(200, 200, 220, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+  letter-spacing: 0.2px;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: rgba(200, 200, 220, 0.6);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.chip-remove:hover {
+  color: #ff6b6b;
+}
+
+/* ── Input textarea ── */
+.input-bar input,
+.input-bar textarea,
+.text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  border: 1px solid #2d2a24;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #1a1a1a;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+  min-height: 42px;
+  max-height: 120px;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.45;
+  transition: all 0.2s ease;
+}
+
+.input-bar input::placeholder,
+.input-bar textarea::placeholder,
+.text-input::placeholder {
+  color: rgba(200, 200, 200, 0.5);
+  font-weight: 500;
+}
+
+.input-bar input:focus,
+.input-bar textarea:focus,
+.text-input:focus {
+  outline: none;
+  border-color: #ffd700;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.1);
+}
+
+/* ── Mic button ── */
+.mic-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid #2d2a24;
+  background: #1a1a1a;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.mic-btn:hover {
+  background: #242420;
+  color: rgba(255, 255, 255, 1);
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.mic-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mic-btn.recording {
+  background: #ff6b6b;
+  color: #ffffff;
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.2);
+}
+
+/* ── Send button ── */
+.send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: #ffd700;
+  color: #000;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  font-weight: 600;
+}
+
+.send-btn:hover {
+  background: #ffed4e;
+}
+
+.send-btn:active {
+  opacity: 0.9;
+}
+
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ── Language Selector ── */
+.language-select {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  height: 38px;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.copy-btn:hover {
+  background: var(--bg-secondary);
+}
+
+.copy-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Inline attachment rendering in chat ── */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.msg-attachment-img {
+  max-width: 220px;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.msg-attachment-img:hover {
+  opacity: 0.88;
+}
+
+.msg-attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Main input bar ── */
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  flex-wrap: nowrap;
+}
+
+.input-language {
+  display: flex;
+  align-items: center;
+}
+
+/* ── MOBILE ── */
+@media (max-width: 768px) {
+  .input-bar {
+    padding: 10px 12px 14px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  /* Hide attach button on mobile — sidebar handles new chat */
+  .attach-wrap {
+    display: none;
+  }
+
+  .input-bar input,
+  .input-bar textarea,
+  .text-input {
+    font-size: 16px;
+    padding: 10px 14px;
+    min-height: 42px;
+    max-width: none;
+    border-radius: 22px;
+    flex: 1 1 auto;
+  }
+
+  .language-select {
+    min-width: 0;
+    width: 58px;
+    font-size: 11px;
+    padding: 0 6px;
+    height: 38px;
+    letter-spacing: 0;
+    flex-shrink: 0;
+  }
+
+  .mic-btn,
+  .send-btn {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+  }
+
+  .attachment-preview-strip {
+    padding: 8px 12px 4px;
+  }
+}

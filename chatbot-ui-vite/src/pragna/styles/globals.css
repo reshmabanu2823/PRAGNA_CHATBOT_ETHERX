@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --pragna-gold: #d4af37;
+    --pragna-gold-soft: #e5c76b;
+    --pragna-gold-deep: #b8860b;
+    --pragna-bg: #0a0a0a;
+    --pragna-surface: #141414;
+    --pragna-surface-2: #1a1a1a;
+    --pragna-border: #2d2a24;
+    --pragna-text: #f0e6d3;
+    --pragna-text-muted: #a89878;
+  }
+
+  body {
+    @apply antialiased;
+    background: radial-gradient(circle at 10% -10%, rgba(212, 175, 55, 0.14), transparent 42%),
+      radial-gradient(circle at 90% 0%, rgba(184, 134, 11, 0.12), transparent 36%),
+      var(--pragna-bg);
+    color: var(--pragna-text);
+  }
+
+  ::selection {
+    background: rgba(212, 175, 55, 0.28);
+    color: #fff8e8;
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: rgba(20, 20, 20, 0.82);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(212, 175, 55, 0.18);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
+  }
+  
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent-500/35 focus:ring-offset-1;
+    --tw-ring-offset-color: #141414;
+  }
+}
+
+.pragna-shell {
+  background: transparent;
+  color: var(--pragna-text);
+}
+
+.pragna-shell .bg-white,
+.pragna-shell .bg-white\/80,
+.pragna-shell .bg-white\/50,
+.pragna-shell .bg-gray-50,
+.pragna-shell .bg-gray-100\/80,
+.pragna-shell .bg-\[\#f8fafc\] {
+  background-color: var(--pragna-surface) !important;
+}
+
+.pragna-shell .bg-gray-100,
+.pragna-shell .hover\:bg-gray-100:hover,
+.pragna-shell .hover\:bg-gray-50:hover {
+  background-color: var(--pragna-surface-2) !important;
+}
+
+.pragna-shell .border-border,
+.pragna-shell .border-white\/20,
+.pragna-shell .border-b,
+.pragna-shell .border-r,
+.pragna-shell .border-t {
+  border-color: var(--pragna-border) !important;
+}
+
+.pragna-shell .text-gray-900,
+.pragna-shell .text-gray-800,
+.pragna-shell .text-gray-700 {
+  color: var(--pragna-text) !important;
+}
+
+.pragna-shell .text-gray-600,
+.pragna-shell .text-gray-500,
+.pragna-shell .text-gray-400 {
+  color: var(--pragna-text-muted) !important;
+}
+
+.pragna-shell .text-accent-700,
+.pragna-shell .text-accent-600,
+.pragna-shell .text-accent-500 {
+  color: var(--pragna-gold) !important;
+}
+
+.pragna-shell .bg-accent-50,
+.pragna-shell .bg-accent-100 {
+  background-color: rgba(212, 175, 55, 0.14) !important;
+}
+
+.pragna-shell .from-accent-500,
+.pragna-shell .to-accent-700 {
+  --tw-gradient-from: var(--pragna-gold) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(184, 134, 11, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.pragna-shell .to-accent-700 {
+  --tw-gradient-to: var(--pragna-gold-deep) var(--tw-gradient-to-position) !important;
+}

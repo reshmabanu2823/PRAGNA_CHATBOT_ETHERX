@@ -1,0 +1,22 @@
+flask==3.0.0
+flask-cors==4.0.0
+python-dotenv==1.0.0
+requests==2.31.0
+gTTS==2.5.0
+gunicorn==21.2.0
+groq==0.11.0
+PyJWT==2.12.1
+python-dateutil==2.8.2
+bcrypt==4.1.1
+
+# RAG and NLP dependencies (optional for enhanced retrieval)
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+
+# Web scraping (optional for dynamic content updates)
+beautifulsoup4>=4.12.0
+
+# Upload/document analysis
+pypdf>=4.3.1
+python-docx>=1.1.2
+openpyxl>=3.1.5

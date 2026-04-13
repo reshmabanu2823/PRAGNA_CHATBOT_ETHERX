@@ -1,0 +1,24 @@
+{
+  "$id": "./package.schema.json",
+  "title": "Local package.json schema override",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "private": { "type": "boolean" },
+    "type": { "type": "string" },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "devDependencies": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Chat bubble -->
+  <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+  <!-- Plus sign -->
+  <line x1="12" y1="7.5" x2="12" y2="12.5"></line>
+  <line x1="9.5" y1="10" x2="14.5" y2="10"></line>
+</svg>

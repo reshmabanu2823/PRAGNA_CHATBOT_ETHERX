@@ -1,0 +1,30 @@
+services:
+  # ─── Backend: Flask API ───────────────────────────────────────────────────
+  - type: web
+    name: etherx-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --timeout 120
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false # You will set this in Render dashboard
+      - key: SERPER_API_KEY
+        sync: false
+      - key: FLASK_DEBUG
+        value: "False"
+      - key: FLASK_PORT
+        value: "10000"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+  # ─── Frontend: Vite/React ─────────────────────────────────────────────────
+  - type: web
+    name: etherx-frontend
+    runtime: static
+    rootDir: chatbot-ui-vite
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false # Set to your backend URL after deploying backend

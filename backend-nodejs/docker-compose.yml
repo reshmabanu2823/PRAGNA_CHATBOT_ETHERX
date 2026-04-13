@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0-alpine
+    container_name: etherx-mongodb
+    ports:
+      - '27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: etherx-chat
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etherx-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: etherx-redis
+    ports:
+      - '6379:6379'
+    command: redis-server --requirepass password123
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etherx-network
+
+  backend:
+    build:
+      context: ./backend-nodejs
+      dockerfile: Dockerfile
+    container_name: etherx-backend
+    ports:
+      - '5000:5000'
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:password123@mongodb:27017/etherx-chat
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: password123
+      JWT_SECRET: your_super_secret_jwt_key_12345
+      CLIENT_URL: http://localhost:3000
+      SERVER_URL: http://localhost:5000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend-nodejs:/app
+      - /app/node_modules
+    networks:
+      - etherx-network
+    command: npm run dev
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+  redis_data:
+
+networks:
+  etherx-network:
+    driver: bridge
