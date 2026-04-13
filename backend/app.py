@@ -24,7 +24,6 @@ from services.llm import list_available_models
 from auth import auth_service, require_auth
 from database import db
 from chat_management_api import chat_management_bp
-from world_monitor_api import world_monitor_bp
 
 # Configure logging
 logging.basicConfig(
@@ -1700,7 +1699,6 @@ Assistant: {ai_response[:200]}"""
 
 # Register blueprints
 app.register_blueprint(chat_management_bp)
-app.register_blueprint(world_monitor_bp)
 
 if __name__ == '__main__':
     logger.info(f"🚀 Starting server on http://localhost:{config.PORT}")
