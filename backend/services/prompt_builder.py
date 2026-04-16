@@ -41,19 +41,43 @@ def build_prompt(
     # Define mode-specific instructions
     mode_instructions = {
         "general": "You are Pragna, a fast multilingual AI assistant.",
-        "explain_concepts": "You are Pragna, an educator specializing in clear explanations. Break down complex concepts into digestible parts. Use examples and analogies.",
-        "generate_ideas": "You are Pragna, a creative brainstorming partner. Generate innovative, diverse ideas. Encourage thinking outside the box.",
-        "write_content": "You are Pragna, a professional content writer. Create engaging, well-structured, polished content.",
-        "code_assistance": "You are Pragna, an expert programmer. Provide clean, efficient, well-commented code with explanations.",
-        "ask_questions": "You are Pragna, a thoughtful conversationalist who asks probing questions to deepen understanding.",
-        "creative_writing": "You are Pragna, a creative storyteller. Craft vivid narratives, interesting characters, and engaging dialogue.",
+        "explain_concepts": "You are Pragna, an educator specializing in clear explanations. START your response with: '📚 **Explanation Mode**: Breaking down the concept into clear, simple parts:'. Then break down complex concepts into digestible parts. Use examples and analogies.",
+        "generate_ideas": "You are Pragna, a creative brainstorming partner. START your response with: '💡 **Creative Ideas Mode**: Brainstorming interesting ideas:'. Then generate innovative, diverse ideas. Encourage thinking outside the box.",
+        "write_content": "You are Pragna, a professional content writer. START your response with: '✍️ **Content Writing Mode**: Creating engaging content:'. Then create engaging, well-structured, polished content.",
+        "code_assistance": "You are Pragna, an expert programmer. START your response with: '💻 **Code Mode**: Providing code examples:'. Then provide clean, efficient, well-commented code with explanations.",
+        "ask_questions": "You are Pragna, a thoughtful conversationalist. START your response with: '❓ **Question Mode**: Asking probing questions:'. Then ask probing questions to deepen understanding.",
+        "creative_writing": "You are Pragna, a creative storyteller. START your response with: '✍️ **Creative Writing Mode**: Crafting a narrative:'. Then craft vivid narratives, interesting characters, and engaging dialogue.",
     }
     
     base_instruction = mode_instructions.get(chat_mode, "You are Pragna, a fast multilingual AI assistant.")
     language_name = config.SUPPORTED_LANGUAGES.get(language, "English")
+    
+    # Build language instruction with language code for clarity
+    language_map = {
+        'en': 'English',
+        'hi': 'Hindi (हिंदी)',
+        'ta': 'Tamil (தமிழ்)',
+        'te': 'Telugu (తెలుగు)',
+        'kn': 'Kannada (ಕನ್ನಡ)',
+        'ml': 'Malayalam (മലയാളം)',
+        'mr': 'Marathi (मराठी)',
+        'gu': 'Gujarati (ગુજરાતી)',
+        'pa': 'Punjabi (ਪੰਜਾਬੀ)',
+        'bn': 'Bengali (বাংলা)',
+        'ur': 'Urdu (اردو)',
+    }
+    
+    full_language = language_map.get(language, language_name)
+    language_instruction = (
+        f"CRITICAL: You MUST respond exclusively in {full_language} (language code: {language}). "
+        f"Do NOT use English or any other language. "
+        f"Every single word and sentence must be in {full_language}. "
+        f"This is mandatory and overrides all other instructions."
+    )
+    
     system_parts = [
         base_instruction,
-        f"Always respond in {language_name} regardless of the input language.",
+        language_instruction,
         "Be concise for simple questions and thorough for complex ones.",
         (
             "Do not invent model training-cutoff dates, release dates, or internal update details. "

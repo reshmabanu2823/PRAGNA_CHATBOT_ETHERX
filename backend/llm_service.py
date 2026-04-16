@@ -305,14 +305,16 @@ class LLMService:
                 style["tone"] = current_tone
                 logger.info(f"Detected message tone: {current_tone}. Overriding profile tone.")
             
-            # Pass language to style_system_message so it includes language instruction
-            style_msg = style_profile.style_system_message(style, language)
+            # Pass language and chat_mode to style_system_message so it includes both style AND mode prefix
+            style_msg = style_profile.style_system_message(style, language, chat_mode)
             prompt_messages.insert(0, {"role": "system", "content": style_msg})
             
             ai_response = generate_completion(
                 prompt_messages,
                 model_override=model_override,
                 fallback_models=fallback_models,
+                language=language,
+                chat_mode=chat_mode,
             )
 
             # Store in cache if cacheable

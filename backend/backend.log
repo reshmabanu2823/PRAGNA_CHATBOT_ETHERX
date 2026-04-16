@@ -1,0 +1,110 @@
+nohup: ignoring input
+2026-04-15 20:43:55,517 - services.cache_service - INFO - \u2705 Cache service initialized
+2026-04-15 20:43:55,518 - services.rag_service - INFO - \U0001f680 Loading RAG embedding model: all-MiniLM-L6-v2
+2026-04-15 20:43:55,526 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2026-04-15 20:43:55,527 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2026-04-15 20:43:55,547 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): huggingface.co:443
+2026-04-15 20:43:58,343 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json HTTP/1.1" 307 0
+2026-04-15 20:43:58,780 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json HTTP/1.1" 200 0
+2026-04-15 20:43:59,269 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json HTTP/1.1" 307 0
+2026-04-15 20:43:59,451 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json HTTP/1.1" 200 0
+2026-04-15 20:43:59,783 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json HTTP/1.1" 307 0
+2026-04-15 20:43:59,846 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json HTTP/1.1" 200 0
+2026-04-15 20:44:00,244 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md HTTP/1.1" 307 0
+2026-04-15 20:44:00,330 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md HTTP/1.1" 200 0
+2026-04-15 20:44:00,663 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json HTTP/1.1" 307 0
+2026-04-15 20:44:00,733 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json HTTP/1.1" 200 0
+2026-04-15 20:44:01,060 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json HTTP/1.1" 307 0
+2026-04-15 20:44:01,180 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json HTTP/1.1" 200 0
+2026-04-15 20:44:01,775 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json HTTP/1.1" 404 0
+2026-04-15 20:44:02,446 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json HTTP/1.1" 307 0
+2026-04-15 20:44:02,943 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json HTTP/1.1" 200 0
+2026-04-15 20:44:03,524 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json HTTP/1.1" 307 0
+2026-04-15 20:44:03,647 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json HTTP/1.1" 200 0
+2026-04-15 20:44:03,981 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=False&expand=False HTTP/1.1" 404 64
+2026-04-15 20:44:04,447 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json HTTP/1.1" 307 0
+2026-04-15 20:44:04,512 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "HEAD /api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json HTTP/1.1" 200 0
+2026-04-15 20:44:04,829 - urllib3.connectionpool - DEBUG - https://huggingface.co:443 "GET /api/models/sentence-transformers/all-MiniLM-L6-v2 HTTP/1.1" 200 None
+2026-04-15 20:44:04,894 - services.rag_service - INFO - \U0001f4da Loaded RAG index with 728 documents
+2026-04-15 20:44:04,894 - services.rag_service - INFO - \u2705 RAG Service initialized successfully
+2026-04-15 20:44:04,894 - llm_service - INFO - \u2705 LLM Service initialized with model: llama-3.3-70b-versatile
+2026-04-15 20:44:04,894 - __main__ - INFO - \U0001f680 Initializing RAG service...
+2026-04-15 20:44:04,894 - services.rag_service - INFO - \u2139\ufe0f RAG already has 728 documents
+2026-04-15 20:44:04,894 - llm_service - INFO - \U0001f680 RAG enabled for LLM Service
+2026-04-15 20:44:04,894 - __main__ - INFO - \u2705 RAG service ready with knowledge base
+2026-04-15 20:44:04,894 - __main__ - INFO - \U0001f504 Starting RAG update scheduler...
+2026-04-15 20:44:04,895 - services.rag_scheduler - INFO - \U0001f504 RAG Update Scheduler initialized (enabled: True, interval: 2h)
+2026-04-15 20:44:04,896 - services.rag_scheduler - INFO - \U0001f4f0 RAG updater thread started
+2026-04-15 20:44:04,896 - services.rag_scheduler - INFO - \u2705 RAG Update Scheduler started
+2026-04-15 20:44:04,896 - services.rag_scheduler - INFO - \U0001f680 Running immediate startup RAG refresh
+2026-04-15 20:44:04,896 - __main__ - INFO - \U0001f4ca Scheduler status: {'enabled': True, 'running': True, 'update_interval_hours': 2, 'last_update': None, 'update_count': 0, 'update_errors': 0, 'next_update_in_hours': 'pending'}
+2026-04-15 20:44:04,896 - services.rag_scheduler - INFO - \U0001f504 Starting RAG knowledge base update...
+2026-04-15 20:44:04,896 - __main__ - INFO - \u2705 Chatbot server starting...
+2026-04-15 20:44:04,897 - services.web_scraper - INFO - \U0001f4f0 Updating RAG with latest news (max 10 articles)...
+2026-04-15 20:44:04,897 - __main__ - INFO - \u2705 Using Groq model: llama-3.3-70b-versatile
+2026-04-15 20:44:04,897 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Education and Personalized Learning'...
+2026-04-15 20:44:04,897 - __main__ - INFO - \u2705 Supported languages: ['en', 'hi', 'ta', 'te', 'kn', 'ml', 'mr', 'gu', 'pa', 'bn', 'ur']
+2026-04-15 20:44:04,927 - __main__ - INFO - \U0001f50d Validating API configuration...
+2026-04-15 20:44:04,928 - __main__ - INFO - \u2705 GROQ_API_KEY configured
+2026-04-15 20:44:04,928 - __main__ - INFO - \u2139\ufe0f  OPENAI_API_KEY not set - OpenAI fallback unavailable
+2026-04-15 20:44:04,928 - __main__ - INFO - \U0001f680 Starting server on http://localhost:5001
+2026-04-15 20:44:04,929 - __main__ - INFO - \u2728 Clean chatbot ready!
+2026-04-15 20:44:04,930 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+ * Serving Flask app 'app'
+ * Debug mode: off
+2026-04-15 20:44:04,943 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://10.81.86.135:5001
+2026-04-15 20:44:04,943 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2026-04-15 20:44:06,774 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Education+and+Personalized+Learning&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:06,775 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Education and Personalized Learning'
+2026-04-15 20:44:06,777 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Automated Grading Systems'...
+2026-04-15 20:44:06,778 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:07,970 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Automated+Grading+Systems&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:07,970 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Automated Grading Systems'
+2026-04-15 20:44:07,971 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Research Assistance'...
+2026-04-15 20:44:07,973 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:09,271 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Research+Assistance&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:09,272 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Research Assistance'
+2026-04-15 20:44:09,275 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Media Content Generation'...
+2026-04-15 20:44:09,278 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:10,747 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Media+Content+Generation&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:10,748 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Media Content Generation'
+2026-04-15 20:44:10,750 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Film and Entertainment'...
+2026-04-15 20:44:10,752 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:12,050 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Film+and+Entertainment&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:12,051 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Film and Entertainment'
+2026-04-15 20:44:12,054 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Gaming Industry'...
+2026-04-15 20:44:12,056 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:14,076 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Gaming+Industry&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:14,077 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Gaming Industry'
+2026-04-15 20:44:14,078 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Transportation and Autonomous Vehicles'...
+2026-04-15 20:44:14,081 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:15,728 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Transportation+and+Autonomous+Vehicles&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:15,728 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Transportation and Autonomous Vehicles'
+2026-04-15 20:44:15,730 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Traffic and Smart City Management'...
+2026-04-15 20:44:15,732 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:18,156 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Traffic+and+Smart+City+Management&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:18,157 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Traffic and Smart City Management'
+2026-04-15 20:44:18,161 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Logistics and Route Optimization'...
+2026-04-15 20:44:18,165 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:20,263 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Logistics+and+Route+Optimization&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:20,264 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Logistics and Route Optimization'
+2026-04-15 20:44:20,266 - services.web_scraper - INFO - \U0001f50d Fetching news about 'AI in Agriculture and Crop Prediction'...
+2026-04-15 20:44:20,268 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): newsapi.org:443
+2026-04-15 20:44:21,590 - urllib3.connectionpool - DEBUG - https://newsapi.org:443 "GET /v2/everything?q=AI+in+Agriculture+and+Crop+Prediction&sortBy=publishedAt&language=en&apiKey=5594bc41858f45309e663c3b4e4f8fbf&pageSize=1 HTTP/1.1" 200 None
+2026-04-15 20:44:21,591 - services.web_scraper - INFO - \U0001f4f0 Fetched 1 articles about 'AI in Agriculture and Crop Prediction'
+2026-04-15 20:44:21,592 - services.web_scraper - INFO - \U0001f4f0 Fetched 10 domain news documents across 10 topics
+2026-04-15 20:44:21,592 - services.rag_service - INFO - \U0001f4ca Generating embeddings for 20 chunks...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  1.72it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  1.72it/s]
+2026-04-15 20:44:22,180 - services.rag_service - INFO - \u2705 Added 20 chunks to RAG index
+2026-04-15 20:44:22,188 - services.rag_service - DEBUG - \U0001f4be Saved RAG index (748 documents)
+2026-04-15 20:44:22,188 - services.web_scraper - INFO - \u2705 RAG updated with 10 latest news articles
+2026-04-15 20:44:22,189 - services.rag_scheduler - INFO - \u2705 RAG update completed successfully | Documents: 748 | Total updates: 1
+2026-04-15 20:44:22,189 - services.rag_scheduler - DEBUG - Next update in 2 hours
+forrtl: error (200): program aborting due to window-CLOSE event
+Image              PC                Routine            Line        Source             
+KERNELBASE.dll     00007FFF7E4BA3CD  Unknown               Unknown  Unknown
+KERNEL32.DLL       00007FFF7EA3E8D7  Unknown               Unknown  Unknown
+ntdll.dll          00007FFF80AEC3FC  Unknown               Unknown  Unknown

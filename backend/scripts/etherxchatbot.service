@@ -1,0 +1,43 @@
+[Unit]
+Description=EtherXChatBot Backend Service
+Documentation=https://github.com/EtherXChatBot/backend
+After=network.target
+Wants=ollama.service
+
+[Service]
+Type=notify
+User=etherx
+WorkingDirectory=/opt/etherxchatbot/backend
+
+# Environment file
+EnvironmentFile=/opt/etherxchatbot/backend/.env
+Environment="PATH=/opt/etherxchatbot/backend/venv/bin"
+
+# Commands
+ExecStart=/opt/etherxchatbot/backend/venv/bin/gunicorn \
+    -c /opt/etherxchatbot/backend/gunicorn_config.py \
+    wsgi:app
+
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+# Timeouts
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=etherx-backend
+
+[Install]
+WantedBy=multi-user.target

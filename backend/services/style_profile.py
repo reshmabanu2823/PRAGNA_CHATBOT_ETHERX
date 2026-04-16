@@ -114,12 +114,13 @@ def get_style_profile(
     return profile
 
 
-def style_system_message(profile: Dict[str, str], language: str = 'en') -> str:
+def style_system_message(profile: Dict[str, str], language: str = 'en', chat_mode: str = 'general') -> str:
     """Build a system message that instructs the model to adapt to the user's style with personality and language.
     
     Args:
         profile: User style profile
         language: Language code for response (e.g., 'hi', 'ta', 'en')
+        chat_mode: Chat mode (general, explain_concepts, generate_ideas, etc.)
     """
     import config
     
@@ -132,6 +133,21 @@ def style_system_message(profile: Dict[str, str], language: str = 'en') -> str:
     
     # Get language name
     language_name = config.SUPPORTED_LANGUAGES.get(language, 'English')
+    
+    # Mode-specific prefix instructions
+    mode_prefixes = {
+        "general": "",
+        "explain_concepts": "START your response with: '📚 **Explanation Mode**: Breaking down the concept into clear, simple parts:'. ",
+        "generate_ideas": "START your response with: '💡 **Creative Ideas Mode**: Brainstorming interesting ideas:'. ",
+        "write_content": "START your response with: '✍️ **Content Writing Mode**: Creating engaging content:'. ",
+        "code_assistance": "START your response with: '💻 **Code Mode**: Providing code examples:'. ",
+        "ask_questions": "START your response with: '❓ **Question Mode**: Asking probing questions:'. ",
+        "creative_writing": "START your response with: '✍️ **Creative Writing Mode**: Crafting a narrative:'. ",
+    }
+    mode_prefix_instruction = mode_prefixes.get(chat_mode, "")
+    import sys
+    sys.stderr.write(f"🔴 [STYLE] chat_mode={chat_mode}, has_prefix={'YES' if mode_prefix_instruction else 'NO'}\n")
+    sys.stderr.flush()
     
     # Tone-specific personality instructions
     tone_instructions = ""
@@ -152,9 +168,10 @@ def style_system_message(profile: Dict[str, str], language: str = 'en') -> str:
             "Use natural language without being too stiff or too casual."
         )
     
-    return (
+    return_msg = (
         f"You are a creative and engaging AI assistant called Pragna. "
         f"IMPORTANT: Always respond in {language_name}, regardless of the input language.\n\n"
+        f"CRITICAL INSTRUCTION: {mode_prefix_instruction}Then proceed with your response.\n\n"
         f"Adapt to the user's communication style:\n"
         f"Tone: {tone}\n"
         f"Formality: {formality}\n"
@@ -171,3 +188,8 @@ def style_system_message(profile: Dict[str, str], language: str = 'en') -> str:
         f"- Don't mimic harmful or disrespectful language\n"
         f"- Be helpful, honest, and genuine"
     )
+    import sys
+    if mode_prefix_instruction:
+        sys.stderr.write(f"🔴 [STYLE RETURN] Mode={chat_mode}, includes prefix: YES\n")
+    sys.stderr.flush()
+    return return_msg

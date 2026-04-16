@@ -13,18 +13,49 @@ load_dotenv(override=True)
 # Flask Configuration
 HOST = os.getenv('FLASK_HOST', '0.0.0.0')
 PORT = int(os.getenv('FLASK_PORT', 5001))
-DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+# DEBUG should be False in production - only enable for local development
+DEBUG = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+
+# Development Mode - Enables mock responses for testing without valid API keys
+# WARNING: Should be False in production to ensure real API calls
+DEVELOPMENT_MODE = os.getenv('DEVELOPMENT_MODE', 'False').lower() == 'true'
+
+if DEVELOPMENT_MODE:
+    import logging
+    logging.warning('⚠️  DEVELOPMENT_MODE is enabled - demo responses will be used instead of real APIs')
 
 # Groq Configuration (Primary LLM)
 GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-70b-versatile')
 GROQ_TIMEOUT = int(os.getenv('GROQ_TIMEOUT', 60))
 GROQ_BASE_URL = os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1')
 
+# Validate that at least one API key is configured for production
+_has_valid_api = GROQ_API_KEY or os.getenv('OPENAI_API_KEY', '') or os.getenv('OLLAMA_ENABLED', 'False').lower() == 'true'
+if not _has_valid_api and not DEVELOPMENT_MODE:
+    import logging
+    logging.error('❌ CRITICAL: No valid API configuration found!')
+    logging.error('   Please configure one of: GROQ_API_KEY, OPENAI_API_KEY, or enable Ollama')
+    logging.error('   Set DEVELOPMENT_MODE=True only for testing')
+
+# LLM Provider Selection
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'standard')  # 'ollama_only' or 'standard'
+if LLM_PROVIDER not in ['ollama_only', 'standard']:
+    LLM_PROVIDER = 'standard'
+
 # Ollama Configuration (Local Open Models)
 OLLAMA_ENABLED = os.getenv('OLLAMA_ENABLED', 'True').lower() == 'true'
-OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434/v1')
+OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'mistral')
 OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', 120))
+
+# Log mode at startup
+if LLM_PROVIDER == 'ollama_only':
+    import logging
+    logging.warning('⚠️  OLLAMA-ONLY MODE ENABLED: No Groq/OpenAI fallbacks')
+    logging.warning(f'   Ollama URL: {OLLAMA_API_URL}')
+    logging.warning(f'   Ollama Model: {OLLAMA_MODEL}')
+    logging.warning('   Start Ollama with: ollama run mistral')
 
 # OpenAI Configuration (Fallback/Alternative)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
@@ -48,36 +79,37 @@ RUNWAY_POLL_INTERVAL_SECONDS = float(os.getenv('RUNWAY_POLL_INTERVAL_SECONDS', 1
 RUNWAY_STRICT_MODE = os.getenv('RUNWAY_STRICT_MODE', 'False').lower() == 'true'
 
 # Multi-model routing configuration
-DEFAULT_MODEL_KEY = os.getenv('DEFAULT_MODEL_KEY', f'groq:{GROQ_MODEL}')
+# Ollama is now PRIMARY model for local inference
+DEFAULT_MODEL_KEY = os.getenv('DEFAULT_MODEL_KEY', 'ollama:qwen3:8b')
 DEFAULT_MODEL_FALLBACKS = [
     item.strip()
-    for item in os.getenv('DEFAULT_MODEL_FALLBACKS', 'groq:llama-3.1-8b-instant,ollama:qwen3:8b').split(',')
+    for item in os.getenv('DEFAULT_MODEL_FALLBACKS', 'ollama:qwen3:8b,ollama:qwen3:4b,groq:llama-3.1-8b-instant').split(',')
     if item.strip()
 ]
-CLASSIFIER_MODEL_KEY = os.getenv('CLASSIFIER_MODEL_KEY', DEFAULT_MODEL_KEY)
+CLASSIFIER_MODEL_KEY = os.getenv('CLASSIFIER_MODEL_KEY', 'ollama:qwen3:4b')
 CLASSIFIER_FALLBACKS = [
     item.strip()
-    for item in os.getenv('CLASSIFIER_FALLBACKS', 'groq:llama-3.1-8b-instant,ollama:qwen3:4b').split(',')
+    for item in os.getenv('CLASSIFIER_FALLBACKS', 'ollama:qwen3:4b,ollama:qwen3:8b,groq:llama-3.1-8b-instant').split(',')
     if item.strip()
 ]
 
 # Model profile routing (Instant = slightly powerful, Expert = heavily powerful)
-MODEL_PROFILE_LIGHT_KEY = os.getenv('MODEL_PROFILE_LIGHT_KEY', 'groq:llama-3.1-8b-instant')
+MODEL_PROFILE_LIGHT_KEY = os.getenv('MODEL_PROFILE_LIGHT_KEY', 'ollama:qwen3:4b')
 MODEL_PROFILE_LIGHT_FALLBACKS = [
     item.strip()
     for item in os.getenv(
         'MODEL_PROFILE_LIGHT_FALLBACKS',
-        'groq:llama-3.1-8b-instant,ollama:qwen3:8b,ollama:qwen3:4b'
+        'ollama:qwen3:4b,ollama:qwen3:8b,groq:llama-3.1-8b-instant'
     ).split(',')
     if item.strip()
 ]
 
-MODEL_PROFILE_HEAVY_KEY = os.getenv('MODEL_PROFILE_HEAVY_KEY', 'groq:llama3-70b-8192')
+MODEL_PROFILE_HEAVY_KEY = os.getenv('MODEL_PROFILE_HEAVY_KEY', 'ollama:qwen3:12b')
 MODEL_PROFILE_HEAVY_FALLBACKS = [
     item.strip()
     for item in os.getenv(
         'MODEL_PROFILE_HEAVY_FALLBACKS',
-        'groq:llama3-70b-8192,groq:mixtral-8x7b-32768,ollama:gemma3:12b,groq:llama-3.1-8b-instant'
+        'ollama:qwen3:12b,ollama:qwen3:8b,ollama:gemma3:12b,groq:llama3-70b-8192'
     ).split(',')
     if item.strip()
 ]

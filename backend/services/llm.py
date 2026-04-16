@@ -10,6 +10,95 @@ import config
 
 logger = logging.getLogger(__name__)
 
+
+def _call_ollama_direct(messages: List[Dict[str, str]]) -> str:
+    """
+    Call Ollama API directly - OLLAMA-ONLY MODE.
+    No fallbacks, no demo responses.
+    
+    Args:
+        messages: List of message dicts (role, content)
+        
+    Returns:
+        Response text from Ollama
+        
+    Raises:
+        RuntimeError: If Ollama is not reachable or returns error
+    """
+    if not config.OLLAMA_ENABLED:
+        raise RuntimeError(
+            "❌ OLLAMA NOT ENABLED\n"
+            "Set OLLAMA_ENABLED=True in backend/.env\n"
+            "And ensure Ollama is running: ollama run mistral"
+        )
+    
+    ollama_url = config.OLLAMA_API_URL.rstrip('/')
+    endpoint = f"{ollama_url}/api/generate"
+    
+    # Convert messages to prompt format for Ollama
+    prompt = ""
+    for msg in messages:
+        role = msg.get('role', 'user')
+        content = msg.get('content', '')
+        if role == 'system':
+            prompt += f"System: {content}\n"
+        elif role == 'assistant':
+            prompt += f"Assistant: {content}\n"
+        else:
+            prompt += f"User: {content}\n"
+    
+    payload = {
+        "model": config.OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "temperature": 0.7,
+    }
+    
+    logger.info(f"🚀 Calling Ollama at {endpoint}")
+    logger.info(f"   Model: {config.OLLAMA_MODEL}")
+    logger.info(f"   Prompt length: {len(prompt)} chars")
+    
+    try:
+        response = requests.post(
+            endpoint,
+            json=payload,
+            timeout=config.OLLAMA_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        result = data.get("response", "").strip()
+        
+        logger.info(f"✅ Ollama response received: {len(result)} chars")
+        return result
+        
+    except requests.exceptions.Timeout:
+        raise RuntimeError(
+            f"❌ OLLAMA TIMEOUT\n"
+            f"Ollama at {ollama_url} did not respond within {config.OLLAMA_TIMEOUT}s\n"
+            f"Ensure Ollama is running: ollama run mistral"
+        )
+    except requests.exceptions.ConnectionError:
+        raise RuntimeError(
+            f"❌ OLLAMA NOT REACHABLE\n"
+            f"Cannot connect to Ollama at {ollama_url}\n"
+            f"1. Start Ollama: ollama run mistral\n"
+            f"2. Verify URL in backend/.env: OLLAMA_API_URL={config.OLLAMA_API_URL}\n"
+            f"3. Check firewall/network"
+        )
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(
+            f"❌ OLLAMA REQUEST FAILED\n"
+            f"Error: {str(e)}\n"
+            f"URL: {endpoint}\n"
+            f"Model: {config.OLLAMA_MODEL}"
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"❌ OLLAMA ERROR\n"
+            f"Unexpected error: {str(e)}"
+        )
+
+
 def _normalize_key(model_key: str) -> str:
     return (model_key or "").strip().lower()
 
@@ -73,12 +162,27 @@ def _resolve_request_config(model_key: Optional[str]) -> Dict[str, object]:
 
 def _request_completion(messages: List[Dict[str, str]], model_key: Optional[str]) -> str:
     request_cfg = _resolve_request_config(model_key)
+    
+    import sys
+    sys.stderr.write(f"🔴 GROQ_CALL: {len(messages)} messages, system={messages[0]['content'][:80] if messages else 'NONE'}\n")
+    sys.stderr.flush()
 
     if request_cfg["provider"] == "ollama" and not config.OLLAMA_ENABLED:
         raise RuntimeError("Ollama provider is disabled")
 
     if request_cfg["requires_api_key"] and not request_cfg["api_key"]:
-        raise RuntimeError(f"{request_cfg['provider']} API key is not configured")
+        provider_name = request_cfg['provider'].upper()
+        msg = (
+            f"\n❌ {provider_name} API KEY NOT CONFIGURED\n"
+            f"Please add to backend/.env:\n"
+            f"  {provider_name}_API_KEY=your_key_here\n"
+            f"\nGet keys from:\n"
+        )
+        if request_cfg['provider'] == 'groq':
+            msg += "  • https://console.groq.com\n"
+        elif request_cfg['provider'] == 'openai':
+            msg += "  • https://platform.openai.com/api-keys\n"
+        raise RuntimeError(msg)
 
     payload = {
         "model": request_cfg["model"],
@@ -97,6 +201,17 @@ def _request_completion(messages: List[Dict[str, str]], model_key: Optional[str]
         json=payload,
         timeout=request_cfg["timeout"],
     )
+    
+    # Handle authentication errors specifically
+    if response.status_code == 401:
+        provider = request_cfg["provider"]
+        api_key = request_cfg["api_key"]
+        key_preview = api_key[:10] + "..." if api_key else "NOT SET"
+        raise RuntimeError(
+            f"[401 UNAUTHORIZED] {provider.upper()} API authentication failed. "
+            f"API Key: {key_preview}. Please verify your {provider.upper()}_API_KEY in .env is valid."
+        )
+    
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
@@ -116,8 +231,58 @@ def generate_completion(
     messages: List[Dict[str, str]],
     model_override: Optional[str] = None,
     fallback_models: Optional[List[str]] = None,
+    language: str = "en",
+    chat_mode: str = "general",
 ) -> str:
-    """Generate completion with model override and fallback chain support."""
+    """Generate completion with model override and fallback chain support.
+    
+    Args:
+        messages: List of message dictionaries with role and content
+        model_override: Model to use instead of default
+        fallback_models: List of fallback models to try
+        language: Language code (en, hi, ta, te, kn, etc.)
+        chat_mode: Chat mode (general, explain_concepts, code_assistance, etc.)
+        
+    Returns:
+        Completion string or error message
+    """
+    
+    # =========== OLLAMA-ONLY MODE ===========
+    # If LLM_PROVIDER == 'ollama_only', skip all fallback logic
+    if config.LLM_PROVIDER == 'ollama_only':
+        logger.info("=" * 80)
+        logger.info("🚀 OLLAMA-ONLY MODE ACTIVATED")
+        logger.info(f"   URL: {config.OLLAMA_API_URL}")
+        logger.info(f"   Model: {config.OLLAMA_MODEL}")
+        logger.info(f"   No fallbacks - Ollama required")
+        logger.info("=" * 80)
+        
+        try:
+            result = _call_ollama_direct(messages)
+            return result
+        except RuntimeError as e:
+            error_msg = str(e)
+            logger.error(f"🔴 OLLAMA FAILED: {error_msg}")
+            return error_msg
+        except Exception as e:
+            error_msg = f"❌ OLLAMA ERROR: {str(e)}"
+            logger.error(error_msg)
+            return error_msg
+    
+    # =========== STANDARD MODE (with fallbacks) ===========
+    import sys
+    
+    # Log API key configuration at START
+    logger.info("=" * 80)
+    logger.info("🔍 API KEY CONFIGURATION CHECK:")
+    logger.info(f"  ✓ GROQ_API_KEY: {'SET' if config.GROQ_API_KEY else '❌ NOT SET'}")
+    logger.info(f"  ✓ OPENAI_API_KEY: {'SET' if config.OPENAI_API_KEY else '❌ NOT SET'}")
+    logger.info(f"  ✓ OLLAMA_ENABLED: {config.OLLAMA_ENABLED}")
+    logger.info(f"  ✓ DEVELOPMENT_MODE: {config.DEVELOPMENT_MODE}")
+    logger.info(f"  ✓ DEFAULT_MODEL_KEY: {config.DEFAULT_MODEL_KEY}")
+    logger.info(f"  ✓ DEFAULT_MODEL_FALLBACKS: {config.DEFAULT_MODEL_FALLBACKS}")
+    logger.info("=" * 80)
+    
     candidates: List[Optional[str]] = []
     if model_override:
         candidates.append(model_override)
@@ -138,13 +303,28 @@ def generate_completion(
         seen.add(key)
         deduped.append(candidate)
 
+    logger.info(f"📋 Trying models in order: {deduped}")
+    
     errors = []
+    auth_errors = []
+    
     for candidate in deduped:
         try:
-            return _request_completion(messages, candidate)
+            logger.info(f"🔴 [LLM] Attempting model: {candidate}")
+            result = _request_completion(messages, candidate)
+            logger.info(f"✅ [LLM] SUCCESS with {candidate}: {len(result)} chars")
+            return result
         except requests.exceptions.Timeout:
             logger.error("Completion timed out for model candidate: %s", candidate)
             errors.append(f"timeout:{candidate}")
+        except RuntimeError as exc:
+            # Check for auth errors
+            if "401" in str(exc):
+                logger.error("🔴 AUTHENTICATION ERROR: %s", exc)
+                auth_errors.append(str(exc))
+            else:
+                logger.error("Completion failed for %s: %s", candidate, exc)
+            errors.append(f"error:{candidate}")
         except requests.exceptions.RequestException as exc:
             logger.error("Completion request failed for %s: %s", candidate, exc)
             errors.append(f"request_error:{candidate}")
@@ -169,10 +349,45 @@ def generate_completion(
         try:
             logger.warning("Trying emergency fallback text model: %s", candidate)
             return _request_completion(messages, candidate)
+        except RuntimeError as exc:
+            if "401" in str(exc):
+                logger.error("🔴 AUTHENTICATION ERROR in fallback: %s", exc)
+                auth_errors.append(str(exc))
+            logger.error("Emergency fallback failed for %s: %s", candidate, exc)
+            errors.append(f"emergency_error:{candidate}")
         except Exception as exc:
             logger.error("Emergency fallback failed for %s: %s", candidate, exc)
             errors.append(f"emergency_error:{candidate}")
 
     if errors:
         logger.error("All model candidates failed: %s", ", ".join(errors))
-    return "Sorry, I encountered an error while generating the response."
+    
+    # Provide more helpful error message if auth errors were detected
+    if auth_errors:
+        error_msg = (
+            "❌ API AUTHENTICATION FAILED\n"
+            "Your API credentials are invalid or missing. Causes:\n"
+            f"  • Errors: {'; '.join(auth_errors)}\n\n"
+            "FIX: Update backend/.env with valid credentials:"
+            f"  1. Get Groq key from https://console.groq.com\n"
+            "  2. Set GROQ_API_KEY=your_key_here in backend/.env\n"
+            "  3. Restart the backend server"
+        )
+        logger.error(error_msg)
+        return error_msg
+    
+    # All real APIs failed - provide clear error message
+    error_msg = (
+        "❌ ERROR: No LLM provider available\n"
+        f"Failed models: {', '.join(deduped)}\n"
+        "Errors encountered:\n"
+        + "\n".join(f"  • {e}" for e in errors) + "\n\n"
+        "TROUBLESHOOTING:\n"
+        "1. Ensure backend/. env has GROQ_API_KEY set\n"
+        "2. Verify API key is valid at https://console.groq.com\n"
+        "3. Check internet connection\n"
+        "4. Verify OLLAMA_API_URL if using local Ollama\n"
+        "5. Check backend logs for more details"
+    )
+    logger.error(error_msg)
+    return error_msg

@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # ====================================
+  # Ollama Service (Local LLM)
+  # ====================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: etherx-ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - etherx-network
+
+  # ====================================
+  # Backend Service (Flask API)
+  # ====================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: etherx-backend
+    restart: unless-stopped
+    environment:
+      # Flask Configuration
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: 5001
+      FLASK_DEBUG: 'False'
+      
+      # LLM Configuration
+      LLM_PROVIDER: ollama_only
+      OLLAMA_ENABLED: 'True'
+      OLLAMA_API_URL: http://ollama:11434
+      OLLAMA_MODEL: mistral
+      OLLAMA_TIMEOUT: '120'
+      
+      # Groq (Optional - for fallback)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: llama-3.3-70b-versatile
+      
+      # OpenAI (Optional - for fallback)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      
+      # Development Mode
+      DEVELOPMENT_MODE: 'False'
+    ports:
+      - "5001:5001"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/temp:/app/temp
+    networks:
+      - etherx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ====================================
+  # Frontend Service (Vite + React)
+  # ====================================
+  frontend:
+    build:
+      context: ./chatbot-ui-vite
+      dockerfile: Dockerfile
+    container_name: etherx-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:5001
+    depends_on:
+      - backend
+    networks:
+      - etherx-network
+
+volumes:
+  ollama_data:
+    driver: local
+
+networks:
+  etherx-network:
+    driver: bridge

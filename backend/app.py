@@ -27,7 +27,7 @@ from chat_management_api import chat_management_bp
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -442,6 +442,7 @@ PUBLIC_ENDPOINTS = [
     '/api/cache/cleanup',
     '/api/rag/stats',
     '/api/health',
+    '/api/test-ollama',
     '/api/tts',
     '/api/translate',
     '/api/summarize',
@@ -615,6 +616,121 @@ def clear_history():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """
+    Comprehensive health check endpoint to test all critical systems.
+    Tests: API key configuration, LLM connectivity, database, cache, RAG
+    """
+    health_status = {
+        'status': 'unknown',
+        'timestamp': time.time(),
+        'systems': {},
+        'errors': []
+    }
+    
+    # Check 1: API Key Configuration
+    try:
+        groq_key_configured = bool(config.GROQ_API_KEY and len(config.GROQ_API_KEY.strip()) > 0)
+        openai_key_configured = bool(config.OPENAI_API_KEY and len(config.OPENAI_API_KEY.strip()) > 0)
+        ollama_configured = config.OLLAMA_ENABLED
+        
+        if not (groq_key_configured or openai_key_configured or ollama_configured):
+            health_status['errors'].append(
+                "❌ No LLM provider configured. Set one of: GROQ_API_KEY, OPENAI_API_KEY, or OLLAMA_ENABLED=True"
+            )
+        
+        health_status['systems']['api_keys'] = {
+            'groq_configured': groq_key_configured,
+            'groq_key_preview': config.GROQ_API_KEY[:10] + '...' if groq_key_configured else 'NOT SET',
+            'openai_configured': openai_key_configured,
+            'ollama_enabled': ollama_configured,
+            'development_mode': config.DEVELOPMENT_MODE
+        }
+    except Exception as e:
+        health_status['systems']['api_keys'] = {'error': str(e)}
+        health_status['errors'].append(f'❌ API key check failed: {e}')
+    
+    # Check 2: LLM Test Request
+    try:
+        from services.llm import _request_completion
+        test_messages = [
+            {'role': 'system', 'content': 'You are a helpful assistant. Respond with exactly: SUCCESS'},
+            {'role': 'user', 'content': 'test'}
+        ]
+        
+        try:
+            response = _request_completion(test_messages, config.DEFAULT_MODEL_KEY)
+            if response and 'success' in response.lower():
+                health_status['systems']['llm'] = {
+                    'status': 'healthy',
+                    'model': config.DEFAULT_MODEL_KEY,
+                    'response_length': len(response)
+                }
+            else:
+                health_status['systems']['llm'] = {
+                    'status': 'responding',
+                    'model': config.DEFAULT_MODEL_KEY,
+                    'response_sample': response[:100]
+                }
+        except RuntimeError as e:
+            if '401' in str(e) or 'not configured' in str(e).lower():
+                health_status['errors'].append(f'❌ LLM API Error: {e}')
+                health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
+            else:
+                raise
+    except Exception as e:
+        health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
+        health_status['errors'].append(f'❌ LLM check failed: {str(e)[:100]}')
+    
+    # Check 3: Database
+    try:
+        db.session.execute('SELECT 1')
+        health_status['systems']['database'] = {'status': 'healthy'}
+    except Exception as e:
+        health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}
+        health_status['errors'].append(f'❌ Database error: {str(e)[:100]}')
+    
+    # Check 4: Cache
+    try:
+        cache = get_cache_service()
+        stats = cache.get_stats()
+        health_status['systems']['cache'] = {
+            'status': 'healthy',
+            'entries': stats.get('total_entries', 0),
+            'hit_rate': f"{stats.get('hit_rate_percent', 0):.1f}%"
+        }
+    except Exception as e:
+        health_status['systems']['cache'] = {'status': 'error', 'error': str(e)[:100]}
+    
+    # Check 5: RAG
+    try:
+        rag = get_rag_service()
+        rag_stats = rag.get_stats()
+        health_status['systems']['rag'] = {
+            'status': 'healthy' if rag_stats.get('enabled') else 'disabled',
+            'documents': rag_stats.get('document_count', 0),
+            'enabled': rag_stats.get('enabled', False)
+        }
+    except Exception as e:
+        health_status['systems']['rag'] = {'status': 'error', 'error': str(e)[:100]}
+    
+    # Overall status determination
+    critical_errors = [e for e in health_status['errors'] if '❌' in e]
+    if critical_errors:
+        health_status['status'] = 'unhealthy'
+        http_status = 503
+    elif health_status['errors']:
+        health_status['status'] = 'degraded'
+        http_status = 200
+    else:
+        health_status['status'] = 'healthy'
+        http_status = 200
+    
+    return jsonify(health_status), http_status
+
+
 @app.route('/api/status', methods=['GET'])
 def status():
     """Compatibility endpoint for frontend health check"""
@@ -623,6 +739,97 @@ def status():
         'models_loaded': True,
         'model': config.GROQ_MODEL
     })
+
+
+@app.route('/api/test-ollama', methods=['POST'])
+@app.route('/api/test-ollama', methods=['GET'])
+def test_ollama():
+    """
+    Test endpoint to verify Ollama connectivity and functionality.
+    Returns: Connection status, model info, and test response
+    """
+    logger.info("🧪 Testing Ollama connection...")
+    
+    test_result = {
+        'status': 'unknown',
+        'ollama_enabled': config.OLLAMA_ENABLED,
+        'ollama_url': config.OLLAMA_API_URL,
+        'ollama_model': config.OLLAMA_MODEL,
+        'llm_provider': config.LLM_PROVIDER,
+        'messages': [],
+        'errors': []
+    }
+    
+    # Check 1: Is Ollama enabled?
+    if not config.OLLAMA_ENABLED:
+        test_result['errors'].append(f"❌ Ollama is DISABLED. Set OLLAMA_ENABLED=True in backend/.env")
+        test_result['status'] = 'error'
+        return jsonify(test_result), 503
+    
+    test_result['messages'].append(f"✓ Ollama ENABLED")
+    
+    # Check 2: Can we reach Ollama?
+    ollama_url = config.OLLAMA_API_URL.rstrip('/')
+    try:
+        response = requests.get(
+            f"{ollama_url}/api/tags",
+            timeout=5
+        )
+        response.raise_for_status()
+        models = response.json().get('models', [])
+        test_result['messages'].append(f"✓ Ollama is REACHABLE at {ollama_url}")
+        test_result['available_models'] = [m.get('name', m) for m in models]
+        
+        # Check 3: Is our model available?
+        model_names = [m.get('name', '') if isinstance(m, dict) else str(m) for m in models]
+        if config.OLLAMA_MODEL in model_names or any(config.OLLAMA_MODEL in str(m) for m in model_names):
+            test_result['messages'].append(f"✓ Model '{config.OLLAMA_MODEL}' is AVAILABLE")
+        else:
+            test_result['errors'].append(
+                f"⚠️  Model '{config.OLLAMA_MODEL}' not found.\n"
+                f"Available models: {', '.join(model_names) if model_names else 'none'}\n"
+                f"Pull model with: ollama pull {config.OLLAMA_MODEL}"
+            )
+            test_result['status'] = 'warning'
+            return jsonify(test_result), 207  # Multi-status
+            
+    except requests.exceptions.ConnectionError:
+        test_result['errors'].append(
+            f"❌ Cannot connect to Ollama at {ollama_url}\n"
+            f"1. Start Ollama: ollama run {config.OLLAMA_MODEL}\n"
+            f"2. Check OLLAMA_API_URL in backend/.env"
+        )
+        test_result['status'] = 'error'
+        return jsonify(test_result), 503
+    except requests.exceptions.Timeout:
+        test_result['errors'].append(f"❌ Ollama timeout at {ollama_url}")
+        test_result['status'] = 'error'
+        return jsonify(test_result), 503
+    except Exception as e:
+        test_result['errors'].append(f"❌ Error reaching Ollama: {str(e)}")
+        test_result['status'] = 'error'
+        return jsonify(test_result), 500
+    
+    # Check 4: Test a simple request
+    test_messages = [
+        {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+        {'role': 'user', 'content': 'Say "Ollama is working!" and nothing else.'}
+    ]
+    
+    try:
+        from services.llm import _call_ollama_direct
+        test_response = _call_ollama_direct(test_messages)
+        
+        test_result['messages'].append(f"✓ Test request SUCCESSFUL")
+        test_result['test_response'] = test_response[:200]  # First 200 chars
+        test_result['status'] = 'healthy'
+        
+        return jsonify(test_result), 200
+        
+    except Exception as e:
+        test_result['errors'].append(f"❌ Test request failed: {str(e)}")
+        test_result['status'] = 'error'
+        return jsonify(test_result), 500
 
 
 @app.route('/api/platform/status', methods=['GET'])
@@ -1700,7 +1907,47 @@ Assistant: {ai_response[:200]}"""
 # Register blueprints
 app.register_blueprint(chat_management_bp)
 
+def _validate_api_configuration():
+    """
+    Validate API key configuration at startup.
+    Logs warnings if critical APIs are not configured.
+    """
+    logger.info("🔍 Validating API configuration...")
+    
+    issues = []
+    
+    # Check Groq
+    if not config.GROQ_API_KEY:
+        issues.append("❌ GROQ_API_KEY not set - LLM responses will fail")
+    elif config.GROQ_API_KEY.startswith("your_") or len(config.GROQ_API_KEY) < 20:
+        issues.append("⚠️  GROQ_API_KEY looks invalid or placeholder")
+    else:
+        logger.info("✅ GROQ_API_KEY configured")
+    
+    # Check Ollama as fallback
+    if not config.OLLAMA_ENABLED:
+        logger.info("ℹ️  Ollama disabled - will rely on Groq/OpenAI")
+    
+    # Check OpenAI as fallback
+    if not config.OPENAI_API_KEY:
+        logger.info("ℹ️  OPENAI_API_KEY not set - OpenAI fallback unavailable")
+    
+    # Check Serper for search
+    if not config.SERPER_API_KEY:
+        logger.info("ℹ️  SERPER_API_KEY not set - Web search unavailable")
+    
+    if issues:
+        logger.warning("⚠️  API Configuration Issues Detected:")
+        for issue in issues:
+            logger.warning(f"  {issue}")
+        logger.warning("\n📝 To fix this:")
+        logger.warning("  1. Open backend/.env")
+        logger.warning("  2. Get a valid API key from https://console.groq.com")
+        logger.warning("  3. Update GROQ_API_KEY=your_key_here")
+        logger.warning("  4. Restart the server\n")
+
 if __name__ == '__main__':
+    _validate_api_configuration()
     logger.info(f"🚀 Starting server on http://localhost:{config.PORT}")
     logger.info("✨ Clean chatbot ready!")
     app.run(host='0.0.0.0', port=config.PORT, debug=config.DEBUG)
