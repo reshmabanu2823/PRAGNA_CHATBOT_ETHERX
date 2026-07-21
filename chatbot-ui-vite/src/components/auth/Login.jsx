@@ -145,17 +145,10 @@ export default function Login({ onLoginSuccess }) {
     <div className="auth-container">
       <div className="auth-canvas" aria-hidden="true"></div>
 
-      <div className="auth-header">
-        <div className="header-logo-container">
-          <img src={pragnaLogo} alt="Pragna" className="header-logo-small" />
-          <h2 className="project-name">PRAGNA-1 A</h2>
-        </div>
-        <p className="company-subtitle">
-          Powered by <span className="etherx-text">EtherX Innovations</span>
-        </p>
-      </div>
-
       <div className="auth-box">
+        <div className="auth-logo-wrapper">
+          <img src={pragnaLogo} alt="Pragna Logo" className="auth-logo-centered" />
+        </div>
         {showForgotPassword ? (
           <>
             <h1>Reset Password</h1>
