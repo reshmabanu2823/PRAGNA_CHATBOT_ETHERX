@@ -76,15 +76,24 @@ class CacheService:
         key = cache.generate_cache_key("What is AI?", "en")
     """
     
-    def __init__(self):
-        """Initialize the cache service."""
+    def __init__(self, max_entries: int = 500):
+        """Initialize the cache service.
+
+        max_entries bounds memory use: nothing else ever purges expired
+        entries automatically (cleanup_expired() is only reachable via the
+        manual POST /api/cache/cleanup endpoint), and most chat queries are
+        unique enough that TTL expiry alone doesn't help - without a size
+        cap this dict grows for as long as the process lives.
+        """
         self._cache: Dict[str, CacheEntry] = {}
+        self.max_entries = max_entries
         self._stats = {
             "hits": 0,
             "misses": 0,
             "sets": 0,
             "deletes": 0,
             "expirations": 0,
+            "evictions": 0,
         }
     
     @staticmethod
@@ -181,6 +190,28 @@ class CacheService:
         self._cache[key] = CacheEntry(value, ttl_seconds)
         self._stats["sets"] += 1
         logger.debug(f"Cache SET: {key} (ttl: {ttl_seconds}s)")
+
+        if len(self._cache) > self.max_entries:
+            self._evict_to_capacity()
+
+    def _evict_to_capacity(self) -> None:
+        """Bring the cache back under max_entries, expired entries first,
+        then oldest-created next, so a single process can never grow this
+        dict without bound regardless of traffic pattern."""
+        expired_keys = [key for key, entry in self._cache.items() if entry.is_expired()]
+        for key in expired_keys:
+            del self._cache[key]
+            self._stats["expirations"] += 1
+        if expired_keys:
+            logger.info(f"Cache evicted {len(expired_keys)} expired entries at capacity")
+
+        overflow = len(self._cache) - self.max_entries
+        if overflow > 0:
+            oldest_keys = sorted(self._cache, key=lambda k: self._cache[k].created_at)[:overflow]
+            for key in oldest_keys:
+                del self._cache[key]
+                self._stats["evictions"] += 1
+            logger.info(f"Cache evicted {len(oldest_keys)} oldest entries at capacity ({self.max_entries})")
     
     def delete_cache(self, key: str) -> bool:
         """

@@ -52,8 +52,8 @@
 
 .sidebar-logo img {
   height: 150px;
-  width: auto;
-  object-fit: contain;
+  width: 300px;
+  object-fit: cover;
 }
 
 
@@ -72,8 +72,8 @@
 .new-chat-btn {
   width: 100%;
   padding: 12px 14px;
-  background: #1a1a1a;
-  border: 1px solid #2d2a24;
+  background: var(--pragna-surface-2);
+  border: 1px solid var(--pragna-border);
   border-radius: 8px;
   font-size: 14px;
   font-weight: 700;

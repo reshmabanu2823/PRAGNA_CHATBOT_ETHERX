@@ -37,28 +37,44 @@ services:
       FLASK_HOST: 0.0.0.0
       FLASK_PORT: 5001
       FLASK_DEBUG: 'False'
-      
-      # LLM Configuration
-      LLM_PROVIDER: ollama_only
+
+      # LLM Configuration - primary + fallbacks run via Ollama Cloud, no
+      # local model weights needed. The local `ollama` container below is
+      # kept for optional self-hosted community models (Ravishka/Miku,
+      # jensonodigie/Jenteck-GPT) - pull them into it yourself if you want
+      # those in the chain; they're not required for this to work.
+      LLM_PROVIDER: standard
       OLLAMA_ENABLED: 'True'
-      OLLAMA_API_URL: http://ollama:11434
-      OLLAMA_MODEL: mistral
+      OLLAMA_API_URL: https://ollama.com
+      OLLAMA_MODEL: nemotron-3-super:cloud
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:?set OLLAMA_API_KEY in .env - get one at ollama.com/settings/keys}
       OLLAMA_TIMEOUT: '120'
-      
-      # Groq (Optional - for fallback)
+
+      DEFAULT_MODEL_KEY: ollama:nemotron-3-super:cloud
+      DEFAULT_MODEL_FALLBACKS: ollama:nemotron-3-super:cloud,groq:llama-3.1-8b-instant
+      CLASSIFIER_MODEL_KEY: ollama:nemotron-3-super:cloud
+      CLASSIFIER_FALLBACKS: ollama:nemotron-3-super:cloud,groq:llama-3.1-8b-instant
+
+      # Groq (Optional - safety net if Ollama Cloud's free quota runs out)
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: llama-3.3-70b-versatile
-      
+
       # OpenAI (Optional - for fallback)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      
+
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env - any long random string}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+
+      # False by default to keep this deployable on memory-constrained free
+      # tiers (Koyeb's 512MB free instance, etc.) - skips loading
+      # sentence-transformers/torch/faiss at boot. Set True if you have
+      # enough RAM (~1GB+ headroom) and want the /api/rag/* endpoints.
+      RAG_ENABLED: ${RAG_ENABLED:-False}
+
       # Development Mode
       DEVELOPMENT_MODE: 'False'
     ports:
       - "5001:5001"
-    depends_on:
-      ollama:
-        condition: service_healthy
     volumes:
       - ./backend/data:/app/data
       - ./backend/temp:/app/temp
@@ -78,12 +94,14 @@ services:
     build:
       context: ./chatbot-ui-vite
       dockerfile: Dockerfile
+      args:
+        # Baked in at build time (see Dockerfile) - must be the backend's
+        # actual public URL/IP, not localhost, once this runs on a VPS.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5001}
     container_name: etherx-frontend
     restart: unless-stopped
     ports:
       - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:5001
     depends_on:
       - backend
     networks:

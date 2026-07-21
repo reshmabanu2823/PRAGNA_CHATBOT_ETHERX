@@ -13,7 +13,7 @@ export default function ProfileDropdown({ onLogout }) {
     useEffect(() => {
         // Check for JWT authentication
         const savedUserId = localStorage.getItem('userId');
-        const savedName = localStorage.getItem('userName');
+        const savedName = localStorage.getItem('authUsername');
         if (savedUserId) {
             setUserId(savedUserId);
             setDisplayName(savedName || "User");
@@ -27,7 +27,7 @@ export default function ProfileDropdown({ onLogout }) {
         e.preventDefault();
         if (name.trim() && email.trim()) {
             login(name, email);
-            localStorage.setItem('userName', name);
+            localStorage.setItem('authUsername', name);
             setDisplayName(name);
             setShowLoginForm(false);
             setShowDropdown(false);
@@ -39,7 +39,7 @@ export default function ProfileDropdown({ onLogout }) {
     const handleLogout = () => {
         logout();
         localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
+        localStorage.removeItem('authUsername');
         setUserId(null);
         setDisplayName("");
         if (onLogout) {

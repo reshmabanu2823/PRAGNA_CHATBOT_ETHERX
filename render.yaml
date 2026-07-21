@@ -3,18 +3,95 @@ services:
   - type: web
     name: etherx-backend
     runtime: python
+    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --timeout 120
+    # Render injects $PORT at runtime and requires the service to bind to it -
+    # gunicorn defaults to 127.0.0.1:8000 otherwise, which fails Render's port
+    # check. Note config.PORT/FLASK_PORT has NO effect here: gunicorn imports
+    # the `app` WSGI callable directly, so app.py's `if __name__ == '__main__'`
+    # block (the only place that reads config.PORT) never runs.
+    startCommand: gunicorn app:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT
     envVars:
+      - key: LLM_PROVIDER
+        value: standard # 'standard' mode uses the real fallback chain below
+                         # (DEFAULT_MODEL_FALLBACKS) via services/llm.py
+                         # _request_completion. ollama_only mode has ZERO
+                         # fallback - not worth the risk on a free cloud quota.
+      - key: OLLAMA_API_URL
+        value: https://ollama.com # Ollama's hosted cloud API - serves :cloud
+                                   # models with no self-hosted daemon needed.
+                                   # Only works for :cloud-tagged models; swap
+                                   # to a self-hosted URL if you add a VPS -
+                                   # note this URL is shared by ALL ollama:
+                                   # candidates below, so the non-:cloud ones
+                                   # (Miku, Jenteck-GPT) will fail until then.
+      - key: OLLAMA_MODEL
+        value: nemotron-3-super:cloud # used by the agent subsystem
+                                       # (services/code_agent.py) and the
+                                       # /api/test-ollama diagnostic route,
+                                       # not by the main chat path in
+                                       # 'standard' mode (that uses
+                                       # DEFAULT_MODEL_KEY below).
+                                       # NOTE: qwen3-coder-next:cloud was
+                                       # removed from Ollama's cloud catalog
+                                       # (started returning 410 Gone) - if
+                                       # this model also disappears someday,
+                                       # check ollama.com/search?c=cloud for
+                                       # a current replacement.
+      - key: OLLAMA_API_KEY
+        sync: false # REQUIRED: your Ollama Cloud API key from
+                     # ollama.com/settings/keys. Authenticates requests to
+                     # https://ollama.com for :cloud models.
+      - key: DEFAULT_MODEL_KEY
+        value: ollama:nemotron-3-super:cloud
+      - key: DEFAULT_MODEL_FALLBACKS
+        # Order: 1 real cloud model (works with just OLLAMA_API_KEY, no VPS)
+        # -> Groq (needs GROQ_API_KEY) -> the two community models, which
+        # will fail until they're pulled on a self-hosted Ollama and
+        # OLLAMA_API_URL points there instead of ollama.com.
+        value: ollama:nemotron-3-super:cloud,groq:llama-3.1-8b-instant,ollama:Ravishka/Miku,ollama:jensonodigie/Jenteck-GPT
+      - key: CLASSIFIER_MODEL_KEY
+        value: ollama:nemotron-3-super:cloud
+      - key: CLASSIFIER_FALLBACKS
+        value: ollama:nemotron-3-super:cloud,groq:llama-3.1-8b-instant,ollama:Ravishka/Miku,ollama:jensonodigie/Jenteck-GPT
       - key: GROQ_API_KEY
-        sync: false # You will set this in Render dashboard
+        sync: false # RECOMMENDED: safety net if Ollama Cloud's free quota
+                     # runs out mid-week. Free key at console.groq.com
       - key: SERPER_API_KEY
         sync: false
+      - key: JWT_SECRET
+        sync: false # REQUIRED: set a long random value in Render dashboard.
+                     # If left unset, auth tokens are signed with the
+                     # publicly-known default in config.py - never leave unset.
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false # Set to the etherx-frontend URL once known (e.g.
+                     # https://etherx-frontend.onrender.com). Defaults to "*"
+                     # (any origin) if left unset.
+      - key: FRONTEND_URL
+        sync: false # REQUIRED for working password-reset emails: set to the
+                     # etherx-frontend URL (e.g. https://etherx-frontend-xxxx
+                     # .onrender.com). Used to build the reset link sent by
+                     # email - defaults to localhost otherwise, which breaks
+                     # for anyone except you on your own dev machine.
+      - key: RESEND_API_KEY
+        sync: false # REQUIRED for password-reset emails to actually send.
+                     # Free key from resend.com - without it, reset tokens
+                     # still get created but no email goes out (logged as a
+                     # warning server-side, request still "succeeds").
+      - key: RESEND_FROM_EMAIL
+        sync: false # Optional - defaults to Resend's shared sandbox sender
+                     # (onboarding@resend.dev), which works with no domain
+                     # setup. Set to e.g. "Pragna <noreply@yourdomain.com>"
+                     # once you've verified a domain in Resend.
+      - key: RAG_ENABLED
+        value: "False" # REQUIRED on Render's free tier (~512MB RAM): True
+                        # eagerly loads sentence-transformers/torch/faiss in
+                        # both gunicorn workers at boot (~700MB+ each),
+                        # which times out Render's port-bind scan before the
+                        # app ever comes up. Main chat doesn't use RAG anyway.
       - key: FLASK_DEBUG
         value: "False"
-      - key: FLASK_PORT
-        value: "10000"
       - key: PYTHON_VERSION
         value: "3.11.0"
 
@@ -25,6 +102,14 @@ services:
     rootDir: chatbot-ui-vite
     buildCommand: npm install && npm run build
     staticPublishPath: dist
+    routes:
+      # SPA fallback: without this, a direct request to a path like
+      # /reset-password?token=... (the URL the password-reset email links
+      # to) 404s at Render's static file server before React ever loads,
+      # since no literal reset-password.html file exists in the build.
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         sync: false # Set to your backend URL after deploying backend

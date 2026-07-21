@@ -93,6 +93,10 @@ logs/
 *.log
 *.log.*
 
+# Local-only tunnel/dev artifacts (e.g. cloudflared quick-tunnel binary)
+cloudflared.exe
+*.pid
+
 # ===================================================================
 # Build Outputs
 # ===================================================================
@@ -105,6 +109,7 @@ build/
 # Temporary Files
 # ===================================================================
 temp/
+generated_docs/
 tmp/
 *.tmp
 .cache/
@@ -116,3 +121,8 @@ tmp/
 .DS_Store
 Thumbs.db
 .directory
+
+# ===================================================================
+# Git worktrees
+# ===================================================================
+.worktrees/

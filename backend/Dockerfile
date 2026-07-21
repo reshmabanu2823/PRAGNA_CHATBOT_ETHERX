@@ -61,7 +61,7 @@ EXPOSE 5001
 # Default to gunicorn for production
 CMD ["gunicorn", \
      "--bind", "0.0.0.0:5001", \
-     "--workers", "4", \
+     "--workers", "2", \
      "--threads", "2", \
      "--timeout", "120", \
      "--access-logfile", "-", \

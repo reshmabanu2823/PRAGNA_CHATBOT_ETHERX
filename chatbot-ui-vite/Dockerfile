@@ -13,6 +13,12 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Vite bakes VITE_* vars into the bundle at build time, not runtime - must
+# be passed as a build ARG, setting it in docker-compose's `environment:`
+# has no effect on the built output.
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 # Build the application
 RUN npm run build
 

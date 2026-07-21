@@ -46,8 +46,10 @@ class LLMService:
         # Cache configuration
         self.cache = get_cache_service()
         self.llm_cache_ttl = 600  # 10 minutes for LLM responses
-        # RAG service for context retrieval
-        self.rag = get_rag_service()
+        # RAG service for context retrieval - only instantiate (loads
+        # sentence-transformers/torch/faiss into memory) when actually
+        # enabled; RAG_ENABLED=False keeps this at zero cost.
+        self.rag = get_rag_service() if config.RAG_ENABLED else None
         self.use_rag = False  # Will be enabled after RAG initialization
         # Chat mode
         self.current_mode = "general"
@@ -190,6 +192,7 @@ class LLMService:
         chat_mode: str = 'general',
         model_override: Optional[str] = None,
         fallback_models: Optional[List[str]] = None,
+        persona_system_prompt: Optional[str] = None,
     ) -> tuple:
         """
         Get AI response for a user message
@@ -279,7 +282,10 @@ class LLMService:
             
             # ==================== CACHING LOGIC ====================
             # Check if we should cache this query
-            is_cacheable = self._is_cacheable_query(message, history)
+            # Skip caching entirely when a persona is active: the cache key is not
+            # keyed by persona, so a cached plain response could bleed into a
+            # persona request (or vice versa) with no indication persona logic ran.
+            is_cacheable = self._is_cacheable_query(message, history) and not persona_system_prompt
             cache_key = None
             
             if is_cacheable:
@@ -307,18 +313,24 @@ class LLMService:
                 user_profile_memory=user_profile_memory,
             )
             
-            # Derive user style profile from history and prepend style adaptation directive
-            style = style_profile.get_style_profile(user_id, max_messages=self.max_history)
-            
-            # Detect tone from CURRENT message and override profile tone if detected
-            current_tone = tone_detector.detect_tone(message)
-            if current_tone != "neutral":
-                style["tone"] = current_tone
-                logger.info(f"Detected message tone: {current_tone}. Overriding profile tone.")
-            
-            # Pass language and chat_mode to style_system_message so it includes both style AND mode prefix
-            style_msg = style_profile.style_system_message(style, language, chat_mode)
-            prompt_messages.insert(0, {"role": "system", "content": style_msg})
+            if persona_system_prompt:
+                # An active custom persona replaces the auto-inferred style message entirely,
+                # rather than stacking both and risking conflicting instructions.
+                system_msg = persona_system_prompt
+            else:
+                # Derive user style profile from history and prepend style adaptation directive
+                style = style_profile.get_style_profile(user_id, max_messages=self.max_history)
+
+                # Detect tone from CURRENT message and override profile tone if detected
+                current_tone = tone_detector.detect_tone(message)
+                if current_tone != "neutral":
+                    style["tone"] = current_tone
+                    logger.info(f"Detected message tone: {current_tone}. Overriding profile tone.")
+
+                # Pass language and chat_mode to style_system_message so it includes both style AND mode prefix
+                system_msg = style_profile.style_system_message(style, language, chat_mode)
+
+            prompt_messages.insert(0, {"role": "system", "content": system_msg})
             
             logger.info("Calling generate_completion: model_override=%s, fallback_models=%s", model_override, fallback_models)
             
@@ -396,6 +408,10 @@ class LLMService:
         """Allow local-only operation when Ollama or DeepSeek local is selected."""
         # DeepSeek local mode never needs a Groq key
         if config.LLM_PROVIDER == 'deepseek_local':
+            return True
+        if config.LLM_PROVIDER == 'ollama_only' and config.OLLAMA_ENABLED:
+            return True
+        if config.DEFAULT_MODEL_KEY.strip().lower().startswith("ollama:") and config.OLLAMA_ENABLED:
             return True
         if not model_override:
             return False

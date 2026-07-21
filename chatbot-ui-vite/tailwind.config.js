@@ -13,6 +13,7 @@ export default {
         accent: {
           50: '#f7efd7',
           100: '#eedca0',
+          400: '#e5c76b',
           500: '#d4af37',
           600: '#c39a20',
           700: '#b8860b',

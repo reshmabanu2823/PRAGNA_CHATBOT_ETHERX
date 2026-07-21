@@ -16,6 +16,38 @@ PORT = int(os.getenv('FLASK_PORT', 5001))
 # DEBUG should be False in production - only enable for local development
 DEBUG = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
 
+# CORS: comma-separated list of allowed frontend origins in production
+# (e.g. "https://etherx-frontend.onrender.com"). Defaults to "*" so local
+# dev keeps working with no configuration; set explicitly in production.
+_cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '*').strip()
+CORS_ALLOWED_ORIGINS = (
+    '*' if _cors_origins_env == '*'
+    else [origin.strip() for origin in _cors_origins_env.split(',') if origin.strip()]
+)
+
+# Frontend origin used to build links embedded in emails (e.g. the password
+# reset link). Falls back to localhost for local dev - set explicitly in
+# production so reset emails point at the real deployed frontend.
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5180').rstrip('/')
+
+# Resend (https://resend.com) for transactional email - password reset, etc.
+# Free tier, no SMTP setup needed. RESEND_FROM_EMAIL defaults to Resend's
+# shared sandbox sender, which works with no domain verification; set your
+# own verified sender once you've added a domain in Resend.
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Pragna-1 A <onboarding@resend.dev>')
+
+# Per-client-IP rate limit for the unauthenticated AI generation endpoints
+# (/api/images/generate, /api/documents/generate) - each call triggers an LLM
+# request and/or a disk write, so these need a cap independent of auth.
+# Format is flask-limiter syntax, e.g. "10 per hour", "5 per minute".
+AI_GENERATION_RATE_LIMIT = os.getenv('AI_GENERATION_RATE_LIMIT', '10 per hour')
+
+# Where flask-limiter stores counters. In-memory is fine for a single
+# instance; set to a shared store (e.g. redis://host:6379) for multi-instance
+# deployments, otherwise each instance enforces its own separate limit.
+LIMITER_STORAGE_URI = os.getenv('LIMITER_STORAGE_URI', 'memory://')
+
 # Development Mode - Enables mock responses for testing without valid API keys
 # WARNING: Should be False in production to ensure real API calls
 DEVELOPMENT_MODE = os.getenv('DEVELOPMENT_MODE', 'False').lower() == 'true'
@@ -48,6 +80,10 @@ OLLAMA_ENABLED = os.getenv('OLLAMA_ENABLED', 'True').lower() == 'true'
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'mistral')
 OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', 120))
+# Only needed when OLLAMA_API_URL points at Ollama's hosted cloud API
+# (https://ollama.com) instead of a self-hosted daemon - authenticates
+# requests to :cloud-tagged models. Unused for local/self-hosted Ollama.
+OLLAMA_API_KEY = os.getenv('OLLAMA_API_KEY', '')
 
 # ── DeepSeek Local (HuggingFace Transformers) ──────────────────────────────
 # Used when LLM_PROVIDER = 'deepseek_local'.  The model is downloaded once
@@ -227,6 +263,42 @@ MODEL_REGISTRY = {
         'speed_tier': 'medium',
         'cost_tier': 'local',
     },
+    'ollama:nemotron-3-super:cloud': {
+        'provider': 'ollama',
+        'model': 'nemotron-3-super:cloud',
+        'display_name': 'Nemotron 3 Super Cloud (Ollama Local)',
+        'open_weights': True,
+        'quality_tier': 'high',
+        'speed_tier': 'medium',
+        'cost_tier': 'local',
+    },
+    'ollama:Ravishka/Miku': {
+        'provider': 'ollama',
+        'model': 'Ravishka/Miku',
+        'display_name': 'Miku (Ollama Local, community upload)',
+        'open_weights': True,
+        'quality_tier': 'unverified',
+        'speed_tier': 'medium',
+        'cost_tier': 'local',
+    },
+    'ollama:jensonodigie/Jenteck-GPT': {
+        'provider': 'ollama',
+        'model': 'jensonodigie/Jenteck-GPT',
+        'display_name': 'Jenteck-GPT (Ollama Local, community upload)',
+        'open_weights': True,
+        'quality_tier': 'unverified',
+        'speed_tier': 'medium',
+        'cost_tier': 'local',
+    },
+    'ollama:adithyak/mysql-index-advisor:latest': {
+        'provider': 'ollama',
+        'model': 'adithyak/mysql-index-advisor:latest',
+        'display_name': 'MySQL Index Advisor (Ollama Local)',
+        'open_weights': True,
+        'quality_tier': 'good',
+        'speed_tier': 'medium',
+        'cost_tier': 'local',
+    },
     # ── DeepSeek local (HuggingFace Transformers) ────────────────────────
     'deepseek:deepseek-r1-distill-qwen-1.5b': {
         'provider': 'deepseek_local',
@@ -270,6 +342,14 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
 # ======================== RAG KNOWLEDGE BASE UPDATES ========================
 # Keep models updated with real-time information beyond training cutoff (Dec 2023)
+
+# Master switch for RAG. When False, app.py skips eager RAG initialization
+# at boot entirely (no sentence-transformers/torch/faiss loaded, no default
+# knowledge base population, no update scheduler) - saves ~500MB-1GB+ RAM at
+# idle. The main /api/chat flow doesn't use RAG at all today (only the
+# dedicated /api/rag/* management routes do), so disabling this has no
+# effect on normal chat. Set False on memory-constrained free-tier hosts.
+RAG_ENABLED = os.getenv('RAG_ENABLED', 'True').lower() == 'true'
 
 # Enable automatic knowledge base updates
 RAG_AUTO_UPDATE_ENABLED = os.getenv('RAG_AUTO_UPDATE_ENABLED', 'True').lower() == 'true'

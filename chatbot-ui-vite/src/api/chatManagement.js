@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:5001'
+// Set VITE_API_URL to the deployed backend's origin in production (see render.yaml);
+// falls back to localhost for local dev, matching the previous hardcoded default.
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -61,9 +63,12 @@ export const ChatManagementAPI = {
     }
   },
 
-  shareChat: async (chatId) => {
+  shareChat: async (chatId, title, messages) => {
     try {
-      const response = await api.post(`/api/chat/${chatId}/share`)
+      const response = await api.post(`/api/chat/${chatId}/share`, {
+        title,
+        messages,
+      })
       return response.data
     } catch (error) {
       console.error('Error sharing chat:', error)

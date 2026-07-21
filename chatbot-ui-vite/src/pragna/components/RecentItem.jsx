@@ -1,22 +1,33 @@
 import { useState, useRef, useEffect } from 'react'
-import { MessageSquare, MoreVertical, Share, Users, Edit2, Pin, Archive, Trash2 } from 'lucide-react'
+import { MoreVertical, Share, Users, Edit2, Pin, Archive, Trash2, Download, Folder, Copy, Printer } from 'lucide-react'
 
-const RecentItem = ({ 
+const RecentItem = ({
   id,
-  title, 
-  onClick, 
-  onDelete, 
+  title,
+  onClick,
+  onDelete,
   onRename,
   onShare,
+  onExport,
+  onPdfExport,
+  onDuplicate,
   onPinChat,
   onArchive,
   onStartGroupChat,
+  onMoveToFolder,
+  folders = [],
+  currentFolderId = null,
   active = false,
-  isPinned = false 
+  isPinned = false
 }) => {
   const [showMenu, setShowMenu] = useState(false)
+  const [showFolderSubmenu, setShowFolderSubmenu] = useState(false)
   const menuRef = useRef(null)
   const buttonRef = useRef(null)
+
+  useEffect(() => {
+    if (!showMenu) setShowFolderSubmenu(false)
+  }, [showMenu])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -39,19 +50,64 @@ const RecentItem = ({
 
   return (
     <div
-      className={`w-full flex items-center justify-between group px-2 py-1.5 rounded-lg transition-colors relative ${
-        active ? 'bg-gray-700' : 'hover:bg-gray-700/50'
-      }`}
+      onClick={onClick}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', id)
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '11px',
+        padding: '10px 14px',
+        borderRadius: '10px',
+        cursor: 'pointer',
+        background: active ? 'var(--pragna-surface-2)' : 'transparent',
+        border: `1px solid ${active ? 'rgba(212,175,55,0.22)' : 'transparent'}`,
+        transition: 'all 0.15s ease',
+        position: 'relative',
+      }}
+      className="group focus-ring"
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex-1 min-w-0 flex items-center gap-2 text-left"
+      {/* Icon */}
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={active ? 'var(--pragna-text)' : 'var(--pragna-text-muted)'}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0 }}
       >
-        <MessageSquare size={14} className={`flex-shrink-0 ${active ? 'text-yellow-500' : 'text-gray-500 group-hover:text-yellow-500'}`} />
-        <span className={`text-xs truncate ${active ? 'text-yellow-100' : 'text-gray-300 group-hover:text-gray-100'}`}>{title}</span>
-      </button>
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
 
+      {/* Title */}
+      <span
+        style={{
+          flex: 1,
+          fontSize: '13.5px',
+          color: active ? 'var(--pragna-text)' : 'var(--pragna-text-muted)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {title}
+      </span>
+
+      {/* Action button */}
       <button
         ref={buttonRef}
         type="button"
@@ -59,64 +115,315 @@ const RecentItem = ({
           e.stopPropagation()
           setShowMenu(!showMenu)
         }}
-        className="ml-2 p-1 rounded text-gray-500 hover:text-white hover:bg-gray-600 transition-all flex-shrink-0"
+        style={{
+          padding: '2px',
+          borderRadius: '4px',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--pragna-text-muted)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: active ? 1 : 0,
+          transition: 'all 0.15s ease',
+        }}
+        className="group-hover:opacity-100"
         aria-label={`Menu for ${title}`}
       >
-        <MoreVertical size={14} />
+        <MoreVertical size={13} />
       </button>
 
       {showMenu && (
         <div
           ref={menuRef}
-          className="absolute right-2 top-full mt-1 w-48 bg-gray-900 border border-gray-800 rounded-lg shadow-lg z-50 overflow-hidden"
+          style={{
+            position: 'absolute',
+            right: '8px',
+            top: 'calc(100% + 4px)',
+            width: '180px',
+            zIndex: 100,
+            padding: '4px',
+            borderRadius: '10px',
+            background: 'var(--pragna-surface)',
+            border: '1px solid rgba(212,175,55,0.22)',
+            boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
+          }}
+          onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={(e) => handleMenuClick(e, onShare)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
           >
-            <Share size={16} className="text-gray-400" />
+            <Share size={14} />
             <span>Share</span>
           </button>
 
           <button
-            onClick={(e) => handleMenuClick(e, onStartGroupChat)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            onClick={(e) => handleMenuClick(e, onExport)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
           >
-            <Users size={16} className="text-gray-400" />
-            <span>Start a group chat</span>
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+
+          <button
+            onClick={(e) => handleMenuClick(e, onPdfExport)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+          >
+            <Printer size={14} />
+            <span>Export as PDF</span>
+          </button>
+
+          <button
+            onClick={(e) => handleMenuClick(e, onDuplicate)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+          >
+            <Copy size={14} />
+            <span>Duplicate</span>
+          </button>
+
+          <button
+            onClick={(e) => handleMenuClick(e, onStartGroupChat)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+          >
+            <Users size={14} />
+            <span>Group Chat</span>
           </button>
 
           <button
             onClick={(e) => handleMenuClick(e, onRename)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
           >
-            <Edit2 size={16} className="text-gray-400" />
+            <Edit2 size={14} />
             <span>Rename</span>
           </button>
 
           <button
             onClick={(e) => handleMenuClick(e, onPinChat)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
           >
-            <Pin size={16} className="text-gray-400" />
-            <span>{isPinned ? 'Unpin chat' : 'Pin chat'}</span>
+            <Pin size={14} />
+            <span>{isPinned ? 'Unpin' : 'Pin'}</span>
           </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowFolderSubmenu((v) => !v)
+            }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+          >
+            <Folder size={14} />
+            <span>Move to folder</span>
+          </button>
+
+          {showFolderSubmenu && (
+            <div style={{ padding: '2px 0 2px 18px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {folders.length === 0 && (
+                <div style={{ padding: '6px 10px', fontSize: '12px', color: '#6b6152' }}>No folders yet</div>
+              )}
+              {folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={(e) => handleMenuClick(e, () => onMoveToFolder?.(folder.id))}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '6px 10px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: folder.id === currentFolderId ? 'var(--pragna-gold-soft)' : 'var(--pragna-text-muted)',
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                  className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+                >
+                  {folder.name}
+                </button>
+              ))}
+              {currentFolderId && (
+                <button
+                  onClick={(e) => handleMenuClick(e, () => onMoveToFolder?.(null))}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '6px 10px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--pragna-text-muted)',
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                  className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+                >
+                  Remove from folder
+                </button>
+              )}
+            </div>
+          )}
 
           <button
             onClick={(e) => handleMenuClick(e, onArchive)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d8cbb0',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
           >
-            <Archive size={16} className="text-gray-400" />
+            <Archive size={14} />
             <span>Archive</span>
           </button>
 
-          <div className="border-t border-gray-800" />
+          <div style={{ height: '1px', background: 'var(--pragna-border)', margin: '4px 0' }} />
 
           <button
             onClick={(e) => handleMenuClick(e, onDelete)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-gray-800 transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 10px',
+              borderRadius: '7px',
+              border: 'none',
+              background: 'transparent',
+              color: '#d98b7f',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            className="hover:bg-[#301614]"
           >
-            <Trash2 size={16} />
+            <Trash2 size={14} />
             <span>Delete</span>
           </button>
         </div>

@@ -1,7 +1,9 @@
+import { API_BASE } from "./api";
+
 export const authAPI = {
   // Register new user
   async register(username, email, password) {
-    const response = await fetch(`/api/auth/register`, {
+    const response = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, email, password })
@@ -11,7 +13,7 @@ export const authAPI = {
 
   // Login user
   async login(username, password) {
-    const response = await fetch(`/api/auth/login`, {
+    const response = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -19,9 +21,29 @@ export const authAPI = {
     return response.json();
   },
 
+  // Request a password reset email
+  async forgotPassword(email) {
+    const response = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    return response.json();
+  },
+
+  // Complete a password reset using the token from the emailed link
+  async resetPassword(token, newPassword) {
+    const response = await fetch(`${API_BASE}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, new_password: newPassword })
+    });
+    return response.json();
+  },
+
   // Verify token
   async verifyToken(token) {
-    const response = await fetch(`/api/auth/verify`, {
+    const response = await fetch(`${API_BASE}/api/auth/verify`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
@@ -29,7 +51,7 @@ export const authAPI = {
 
   // Get user profile
   async getProfile(token) {
-    const response = await fetch(`/api/profile`, {
+    const response = await fetch(`${API_BASE}/api/profile`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();
@@ -37,7 +59,7 @@ export const authAPI = {
 
   // Get all conversations
   async getConversations(token) {
-    const response = await fetch(`/api/conversations`, {
+    const response = await fetch(`${API_BASE}/api/conversations`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return response.json();

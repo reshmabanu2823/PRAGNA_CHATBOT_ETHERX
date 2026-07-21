@@ -1,8 +1,8 @@
 import { useContext, useState, useRef, useCallback, useEffect } from "react";
 import { ChatContext } from "../../context/ChatContext";
-import { generateAIImage, sendOrchestratedMessage, sendOrchestratedUploadMessage } from "../../api/api";
+import { generateAIImage, generateDocument, sendOrchestratedMessage, sendOrchestratedMessageStream, sendOrchestratedUploadMessage, summarizeChat } from "../../api/api";
+import { normalizeLanguageCode, SUPPORTED_LANGUAGE_OPTIONS } from "../../utils/language";
 import LanguageSelector from "./LanguageSelector";
-import { normalizeLanguageCode } from "../../utils/language";
 
 // BCP-47 tags for SpeechRecognition
 const LANG_TAG = {
@@ -21,17 +21,51 @@ const extractImagePrompt = (text) => {
     .trim() || raw;
 };
 
+const DOCUMENT_VERB_RE = /\b(create|generate|make|write|draft)\b.*\b((word\s*)?doc(ument)?|report|excel\s*(sheet|spreadsheet)|spreadsheet|pdf|power\s*point|presentation|slides?)\b/i;
+
+const DOCUMENT_FORMAT_PATTERNS = [
+  { format: "pptx", re: /power\s*point|presentation|slides?/i },
+  { format: "xlsx", re: /excel|spreadsheet|sheet/i },
+  { format: "pdf", re: /\bpdf\b/i },
+  { format: "docx", re: /word\s*doc(ument)?|\bdoc(ument)?\b|report/i },
+];
+
+const extractDocumentRequest = (text) => {
+  const raw = (text || "").trim();
+  if (!raw || !DOCUMENT_VERB_RE.test(raw)) return null;
+  const match = DOCUMENT_FORMAT_PATTERNS.find((p) => p.re.test(raw));
+  if (!match) return null;
+  const subject = raw
+    .replace(/^(please\s+)?(create|generate|make|write|draft)\s+(an?\s+)?(ms\s*)?((word\s*)?doc(ument)?|excel\s*(sheet|spreadsheet)|spreadsheet|pdf|power\s*point(\s*(presentation|deck))?|presentation|slides?|report)\s*(about|on|for|regarding)?\s*/i, "")
+    .trim() || raw;
+  return { format: match.format, subject };
+};
+
+const SLASH_COMMANDS = [
+  { name: "summarize", usage: "/summarize", description: "Summarize this conversation" },
+  { name: "mode", usage: "/mode <general|explain|ideas|write|code|questions|story>", description: "Switch chat mode" },
+  { name: "lang", usage: "/lang <code>", description: "Switch response language" },
+  { name: "clear", usage: "/clear", description: "Start a new chat" },
+  { name: "image", usage: "/image <prompt>", description: "Generate an image" },
+  { name: "doc", usage: "/doc <docx|xlsx|pdf|pptx> <prompt>", description: "Generate a document" },
+  { name: "persona", usage: "/persona <name>", description: "Switch active persona" },
+];
+
+const MODE_COMMAND_MAP = {
+  general: "general",
+  explain: "explain_concepts",
+  ideas: "generate_ideas",
+  write: "write_content",
+  code: "code_assistance",
+  questions: "ask_questions",
+  story: "creative_writing",
+};
+
 // Generate smart title from user input and AI response
 const generateChatTitle = (userMessage, aiResponse) => {
   if (!userMessage && !aiResponse) return "New Chat";
-  
-  // Combine messages
   const combined = (userMessage + " " + aiResponse).toLowerCase();
-  
-  // Remove punctuation and extra spaces
   let cleaned = combined.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-  
-  // Stop words to remove
   const stopWords = new Set([
     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
@@ -40,20 +74,13 @@ const generateChatTitle = (userMessage, aiResponse) => {
     'this', 'your', 'my', 'we', 'they', 'them', 'their', 'what', 'which',
     'when', 'where', 'why', 'how', 'if', 'as', 'just', 'so', 'than'
   ]);
-  
-  // Extract meaningful words
   const words = cleaned
     .split(" ")
     .filter(w => w && !stopWords.has(w) && w.length > 2);
-  
-  // Build title from first 5 key words
   const title = words.slice(0, 5).join(" ");
-  
   if (!title || title.length < 3) {
     return userMessage.slice(0, 40).replace(/[^\w\s]/g, " ").trim() || "New Chat";
   }
-  
-  // Capitalize first letter
   return title.charAt(0).toUpperCase() + title.slice(1);
 };
 
@@ -62,6 +89,8 @@ export default function InputBar() {
   const [recording, setRecording] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [inputFocused, setInputFocused] = useState(false);
+
   const recognitionRef = useRef(null);
   const attachMenuRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -71,7 +100,9 @@ export default function InputBar() {
 
   const {
     chats, setChats, activeChatId, setActiveChatId,
-    language, isLoading, setIsLoading, chatMode, inputRef,
+    language, isLoading, setIsLoading, chatMode, setChatMode, inputRef,
+    personas, activePersonaId, setActivePersonaId,
+    newChat, setLanguage,
   } = useContext(ChatContext);
 
   const activeChat = chats.find((c) => c.id === activeChatId);
@@ -113,7 +144,7 @@ export default function InputBar() {
     if (!files.length) return;
     const newAttachments = files.map((file) => ({
       file,
-      type, // 'image' | 'video' | 'file'
+      type,
       name: type === "folder" ? (file.webkitRelativePath || file.name) : file.name,
       relativePath: file.webkitRelativePath || file.name,
       previewUrl: (type === "image" || type === "video") && !file.webkitRelativePath
@@ -122,7 +153,6 @@ export default function InputBar() {
     }));
     setAttachments((prev) => [...prev, ...newAttachments]);
     setAttachMenuOpen(false);
-    // Reset input so same file can be re-picked
     e.target.value = "";
   };
 
@@ -137,12 +167,192 @@ export default function InputBar() {
     });
   };
 
-  // ─── Helper: send a text message via streaming ───────────────────────────
+  const handleSlashCommand = useCallback(async (rawText) => {
+    const withoutSlash = rawText.slice(1);
+    const spaceIdx = withoutSlash.indexOf(" ");
+    const commandName = (spaceIdx === -1 ? withoutSlash : withoutSlash.slice(0, spaceIdx)).toLowerCase();
+    const arg = (spaceIdx === -1 ? "" : withoutSlash.slice(spaceIdx + 1)).trim();
+
+    let targetChatId = activeChatId;
+    let currentChat = activeChat;
+    if (!targetChatId || !currentChat) {
+      const newId = Date.now().toString();
+      const newChatObj = { id: newId, title: "New chat", messages: [] };
+      setChats((prev) => [newChatObj, ...prev]);
+      setActiveChatId(newId);
+      targetChatId = newId;
+      currentChat = newChatObj;
+    }
+
+    const appendBotMessage = (botText, isError = false) => {
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === targetChatId
+            ? {
+                ...c,
+                messages: [
+                  ...c.messages,
+                  { sender: "user", text: rawText, attachments: [] },
+                  { sender: "bot", text: botText, error: isError },
+                ],
+              }
+            : c
+        )
+      );
+    };
+
+    const command = SLASH_COMMANDS.find((cmd) => cmd.name === commandName);
+    if (!command) {
+      appendBotMessage(
+        `Unknown command "/${commandName}". Available commands: ${SLASH_COMMANDS.map((c) => c.usage).join(", ")}`,
+        true
+      );
+      return;
+    }
+
+    if (commandName === "summarize") {
+      setIsLoading(true);
+      try {
+        const { summary } = await summarizeChat(currentChat.messages, language);
+        appendBotMessage(summary);
+      } catch {
+        appendBotMessage("Failed to summarize this conversation. Please try again.", true);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (commandName === "mode") {
+      const modeKey = MODE_COMMAND_MAP[arg.toLowerCase()];
+      if (!modeKey) {
+        appendBotMessage(`Unknown mode "${arg}". Use one of: ${Object.keys(MODE_COMMAND_MAP).join(", ")}`, true);
+        return;
+      }
+      setChatMode(modeKey);
+      appendBotMessage(`Switched to ${arg.toLowerCase()} mode.`);
+      return;
+    }
+
+    if (commandName === "lang") {
+      const langOption = SUPPORTED_LANGUAGE_OPTIONS.find(
+        (o) => o.code === arg.toLowerCase() || o.label.toLowerCase() === arg.toLowerCase()
+      );
+      if (!langOption) {
+        appendBotMessage(
+          `Unknown language "${arg}". Use one of: ${SUPPORTED_LANGUAGE_OPTIONS.map((o) => o.code).join(", ")}`,
+          true
+        );
+        return;
+      }
+      setLanguage(langOption.code);
+      appendBotMessage(`Switched response language to ${langOption.label}.`);
+      return;
+    }
+
+    if (commandName === "clear") {
+      newChat();
+      return;
+    }
+
+    if (commandName === "image") {
+      if (!arg) {
+        appendBotMessage("Usage: /image <prompt>", true);
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const imageResult = await generateAIImage({ prompt: arg, style: "cinematic", quality: "hd", size: "1024x1024" });
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === targetChatId
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages,
+                    { sender: "user", text: rawText, attachments: [] },
+                    {
+                      sender: "bot",
+                      text: "Generated image ready.",
+                      attachments: [{ name: `generated-${Date.now()}.png`, type: "image", previewUrl: imageResult.image }],
+                    },
+                  ],
+                }
+              : c
+          )
+        );
+      } catch {
+        appendBotMessage("Image generation failed. Please try again.", true);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (commandName === "doc") {
+      const docSpaceIdx = arg.indexOf(" ");
+      const format = (docSpaceIdx === -1 ? arg : arg.slice(0, docSpaceIdx)).toLowerCase();
+      const prompt = (docSpaceIdx === -1 ? "" : arg.slice(docSpaceIdx + 1)).trim();
+      if (!["docx", "xlsx", "pdf", "pptx"].includes(format) || !prompt) {
+        appendBotMessage("Usage: /doc <docx|xlsx|pdf|pptx> <prompt>", true);
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const docResult = await generateDocument({ format, prompt, language: normalizeLanguageCode(language) });
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === targetChatId
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages,
+                    { sender: "user", text: rawText, attachments: [] },
+                    {
+                      sender: "bot",
+                      text: "Generated document ready.",
+                      attachments: [{ name: docResult.filename, type: "document", downloadUrl: docResult.download_url, format }],
+                    },
+                  ],
+                }
+              : c
+          )
+        );
+      } catch {
+        appendBotMessage("Document generation failed. Please try again.", true);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (commandName === "persona") {
+      if (!arg) {
+        appendBotMessage("Usage: /persona <name>", true);
+        return;
+      }
+      const match = personas.find((p) => p.name.toLowerCase() === arg.toLowerCase());
+      if (!match) {
+        const available = personas.length ? personas.map((p) => p.name).join(", ") : "none saved yet";
+        appendBotMessage(`No persona named "${arg}". Available personas: ${available}`, true);
+        return;
+      }
+      setActivePersonaId(match.id);
+      appendBotMessage(`Switched to persona "${match.name}".`);
+      return;
+    }
+  }, [activeChatId, activeChat, language, personas, setChats, setActiveChatId, setIsLoading, setChatMode, setLanguage, newChat, setActivePersonaId]);
+
   const handleSendMessage = useCallback(async (msgText, msgAttachments = []) => {
     const hasContent = msgText.trim() || msgAttachments.length > 0;
     if (!hasContent || isLoading) return;
 
-    // Build text with attachment context for the AI
+    const trimmedText = msgText.trim();
+    if (trimmedText.startsWith("/") && msgAttachments.length === 0) {
+      await handleSlashCommand(trimmedText);
+      return;
+    }
+
     let fullText = msgText.trim();
     if (msgAttachments.length > 0) {
       const fileNames = msgAttachments.map((a) => a.relativePath || a.name).join(", ");
@@ -154,7 +364,6 @@ export default function InputBar() {
     let targetChatId = activeChatId;
     let currentChat = activeChat;
 
-    // Auto-create chat if none active
     if (!targetChatId || !currentChat) {
       const newId = Date.now().toString();
       const newChatObj = {
@@ -168,12 +377,11 @@ export default function InputBar() {
       currentChat = newChatObj;
     }
 
-    // Attachment metadata for display (store safe serializable data)
     const attachmentMeta = msgAttachments.map((a) => ({
       name: a.name,
       type: a.type,
       relativePath: a.relativePath,
-      previewUrl: a.previewUrl, // objectURL — valid for this session
+      previewUrl: a.previewUrl,
     }));
 
     const updatedMessages = [
@@ -191,6 +399,45 @@ export default function InputBar() {
 
     try {
       const normalizedLanguage = normalizeLanguageCode(language);
+
+      const docRequest = msgAttachments.length === 0 ? extractDocumentRequest(msgText) : null;
+      if (docRequest) {
+        const docResult = await generateDocument({
+          format: docRequest.format,
+          prompt: docRequest.subject,
+          language: normalizedLanguage,
+        });
+
+        setIsLoading(false);
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === targetChatId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m, idx) =>
+                    idx === c.messages.length - 1
+                      ? {
+                          ...m,
+                          text: "Generated document ready.",
+                          isStreaming: false,
+                          attachments: [
+                            {
+                              name: docResult.filename,
+                              type: "document",
+                              downloadUrl: docResult.download_url,
+                              format: docRequest.format,
+                            },
+                          ],
+                        }
+                      : m
+                  ),
+                }
+              : c
+          )
+        );
+        return;
+      }
+
       const isImageRequest = IMAGE_REQUEST_RE.test(msgText) && msgAttachments.length === 0;
 
       if (isImageRequest) {
@@ -231,8 +478,8 @@ export default function InputBar() {
         return;
       }
 
-      let data;
       if (msgAttachments.length > 0) {
+        let data;
         try {
           data = await sendOrchestratedUploadMessage(
             msgText.trim(),
@@ -243,34 +490,91 @@ export default function InputBar() {
           );
         } catch (uploadErr) {
           console.warn("Upload analysis endpoint failed, falling back to text-only orchestrator:", uploadErr);
-          const fallbackText = `${fullText}\n[Note: Attachment parsing endpoint unavailable. Analyze using filenames/context and ask for pasted file content if needed.]`;
+          const fallbackText = `${fullText}\n[Note: Attachment parsing endpoint unavailable.]`;
           data = await sendOrchestratedMessage(fallbackText, normalizedLanguage, targetChatId, chatMode);
         }
-      } else {
-        data = await sendOrchestratedMessage(fullText, normalizedLanguage, targetChatId, chatMode);
-      }
-      setIsLoading(false);
+        setIsLoading(false);
 
-      if (data && data.response) {
-        const responseText = data.response;
-        const sources = data.web_search_sources || [];
+        if (data && data.response) {
+          const responseText = data.response;
+          const sources = data.web_search_sources || [];
 
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === targetChatId
-              ? {
-                  ...c,
-                  messages: c.messages.map((m, idx) =>
-                    idx === c.messages.length - 1
-                      ? { ...m, text: responseText, isStreaming: false, sources }
-                      : m
-                  ),
-                }
-              : c
-          )
-        );
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === targetChatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m, idx) =>
+                      idx === c.messages.length - 1
+                        ? { ...m, text: responseText, isStreaming: false, sources }
+                        : m
+                    ),
+                  }
+                : c
+            )
+          );
+        } else {
+          throw new Error("Invalid response from server");
+        }
       } else {
-        throw new Error("Invalid response from server");
+        const activePersona = personas.find((p) => p.id === activePersonaId);
+
+        let sawResponse = false;
+        await sendOrchestratedMessageStream({
+          text: fullText,
+          language: normalizedLanguage,
+          user_id: targetChatId,
+          chatMode,
+          personaSystemPrompt: activePersona?.system_prompt,
+          onChunk: (chunk) => {
+            sawResponse = true;
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === targetChatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m, idx) =>
+                        idx === c.messages.length - 1 ? { ...m, text: (m.text || "") + chunk } : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          },
+          onSources: (sources) => {
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === targetChatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m, idx) =>
+                        idx === c.messages.length - 1 ? { ...m, sources } : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          },
+          onDone: () => {
+            setIsLoading(false);
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === targetChatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m, idx) =>
+                        idx === c.messages.length - 1 ? { ...m, isStreaming: false } : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          },
+        });
+
+        if (!sawResponse) {
+          throw new Error("Invalid response from server");
+        }
       }
     } catch (err) {
       console.error("API error:", err);
@@ -297,16 +601,17 @@ export default function InputBar() {
         )
       );
     }
-  }, [activeChatId, activeChat, chats, isLoading, language, setChats, setActiveChatId, setIsLoading]);
+  }, [activeChatId, activeChat, chats, isLoading, language, setChats, setActiveChatId, setIsLoading, personas, activePersonaId, handleSlashCommand]);
 
-  // ─── Text send ───────────────────────────────────────────────────────────
+  const hasContent = text.trim() || attachments.length > 0;
+
   const send = () => {
+    if (!hasContent || isLoading) return;
     handleSendMessage(text, attachments);
     setText("");
     setAttachments([]);
   };
 
-  // ─── Voice input via SpeechRecognition ──────────────────────────────────
   const toggleMic = () => {
     if (recording) {
       recognitionRef.current?.stop();
@@ -314,8 +619,7 @@ export default function InputBar() {
       return;
     }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
       alert("Your browser doesn't support voice input. Please use Chrome.");
@@ -369,200 +673,259 @@ export default function InputBar() {
     recognition.start();
   };
 
-  const hasContent = text.trim() || attachments.length > 0;
+  const inputBorder = inputFocused ? 'rgba(212,175,55,0.45)' : 'rgba(212,175,55,0.18)';
+
+  const slashQuery = text.startsWith("/") && !text.includes(" ") ? text.slice(1).toLowerCase() : null;
+  const slashMatches = slashQuery !== null
+    ? SLASH_COMMANDS.filter((cmd) => cmd.name.startsWith(slashQuery))
+    : [];
 
   return (
-    <div className="input-bar-wrapper">
-      {/* ── Attachment preview strip ── */}
-      {attachments.length > 0 && (
-        <div className="attachment-preview-strip">
-          {attachments.map((att, i) => (
-            <div className="attachment-chip" key={i}>
-              {att.type === "image" && att.previewUrl ? (
-                <img src={att.previewUrl} alt={att.name} className="chip-thumb" />
-              ) : att.type === "video" ? (
-                <span className="chip-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <rect x="2" y="5" width="15" height="14" rx="2"/>
-                    <path d="M17 9l5-3v12l-5-3V9z"/>
-                  </svg>
-                </span>
-              ) : (
-                <span className="chip-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="9" y1="13" x2="15" y2="13"/>
-                    <line x1="9" y1="17" x2="13" y2="17"/>
-                  </svg>
-                </span>
-              )}
-              <span className="chip-name">{att.name}</span>
-              <button
-                className="chip-remove"
-                onClick={() => removeAttachment(i)}
-                title="Remove"
-              >✕</button>
-            </div>
-          ))}
-        </div>
-      )}
+    <div style={{ padding: '16px 28px 22px 28px', flexShrink: 0 }}>
+      <div style={{ maxWidth: '780px', margin: '0 auto', position: 'relative' }}>
 
-      <div className="input-bar">
-        {/* Hidden file inputs */}
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => handleFilePick(e, "image")}
-        />
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/*"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => handleFilePick(e, "video")}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => handleFilePick(e, "file")}
-        />
-        <input
-          ref={folderInputRef}
-          type="file"
-          multiple
-          webkitdirectory=""
-          directory=""
-          style={{ display: "none" }}
-          onChange={(e) => handleFilePick(e, "folder")}
-        />
-
-        {/* ── + Attach button with popup ── */}
-        <div className="attach-wrap" ref={attachMenuRef}>
-          <button
-            className="attach-btn"
-            onClick={() => setAttachMenuOpen((o) => !o)}
-            title="Add attachment"
+        {slashMatches.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              right: 0,
+              marginBottom: '8px',
+              background: 'var(--pragna-surface)',
+              border: '1px solid rgba(212,175,55,0.22)',
+              borderRadius: '10px',
+              boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
+              padding: '4px',
+              zIndex: 50,
+            }}
           >
-            <svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
+            {slashMatches.map((cmd) => (
+              <button
+                key={cmd.name}
+                onClick={() => {
+                  setText(`/${cmd.name} `);
+                  inputRef.current?.focus();
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#d8cbb0',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  borderRadius: '7px',
+                }}
+                className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+              >
+                <span style={{ fontWeight: 650, color: 'var(--pragna-gold-soft)' }}>{cmd.usage}</span>
+                <span style={{ color: 'var(--pragna-text-muted)', fontSize: '12px' }}>{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Attachment preview strip */}
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            {attachments.map((att, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '8px', background: 'var(--pragna-surface-2)', border: '1px solid var(--pragna-border)', fontSize: '12px' }}>
+                {att.type === "image" && att.previewUrl ? (
+                  <img src={att.previewUrl} alt={att.name} style={{ width: '20px', height: '20px', objectFit: 'cover', borderRadius: '4px' }} />
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--pragna-text-muted)" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                )}
+                <span style={{ color: '#d8cbb0', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                <button onClick={() => removeAttachment(i)} style={{ border: 'none', background: 'transparent', color: '#ff6b6b', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '20px',
+            background: 'var(--pragna-surface)',
+            border: `1px solid ${inputBorder}`,
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.42)',
+            transition: 'border-color 0.2s ease',
+          }}
+        >
+          {/* Attach Button */}
+          <div style={{ position: 'relative' }} ref={attachMenuRef}>
+            <button
+              title="Attach"
+              onClick={() => setAttachMenuOpen(!attachMenuOpen)}
+              style={{
+                width: '40px',
+                height: '40px',
+                flexShrink: 0,
+                borderRadius: '12px',
+                border: 'none',
+                background: '#222222',
+                color: 'var(--pragna-text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease',
+              }}
+              className="hover:text-[var(--pragna-gold-soft)] hover:bg-[var(--pragna-surface-2)]"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+            </button>
+
+            {attachMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '50px',
+                  left: 0,
+                  zIndex: 50,
+                  width: '160px',
+                  background: 'var(--pragna-surface)',
+                  border: '1px solid rgba(212,175,55,0.22)',
+                  borderRadius: '10px',
+                  boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
+                  padding: '4px',
+                }}
+              >
+                {[
+                  { label: 'Image', type: 'image', accept: 'image/*', ref: imageInputRef },
+                  { label: 'Video', type: 'video', accept: 'video/*', ref: videoInputRef },
+                  { label: 'File', type: 'file', accept: '*/*', ref: fileInputRef },
+                  { label: 'Folder', type: 'folder', accept: undefined, ref: folderInputRef },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => item.ref.current?.click()}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#d8cbb0',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      borderRadius: '7px',
+                    }}
+                    className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilePick(e, 'image')} />
+          <input ref={videoInputRef} type="file" accept="video/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilePick(e, 'video')} />
+          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => handleFilePick(e, 'file')} />
+          <input ref={folderInputRef} type="file" webkitdirectory="" directory="" multiple style={{ display: 'none' }} onChange={(e) => handleFilePick(e, 'folder')} />
+
+          {/* Text Area */}
+          <textarea
+            ref={inputRef}
+            rows="1"
+            placeholder={recording ? "Listening…" : "Ask Pragna anything…"}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            style={{
+              flex: 1,
+              resize: 'none',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--pragna-text)',
+              fontFamily: 'var(--pragna-chat-font)',
+              fontSize: '15px',
+              lineHeight: 1.5,
+              padding: '10px 4px',
+              maxHeight: '140px',
+            }}
+          />
+
+          {/* Language Selector */}
+          <LanguageSelector />
+
+          {/* Voice microphone button */}
+          <button
+            title="Voice input"
+            onClick={toggleMic}
+            style={{
+              width: '40px',
+              height: '40px',
+              flexShrink: 0,
+              borderRadius: '12px',
+              border: 'none',
+              background: recording ? 'rgba(220,100,100,0.2)' : 'transparent',
+              color: recording ? '#ff6b6b' : 'var(--pragna-text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s ease',
+            }}
+            className="hover:text-[var(--pragna-gold-soft)] hover:bg-[var(--pragna-surface-2)]"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"></path>
             </svg>
           </button>
 
-          {attachMenuOpen && (
-            <div className="attach-popup">
-              <button
-                className="attach-popup-item"
-                onClick={() => imageInputRef.current?.click()}
-              >
-                <span className="popup-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <rect x="3" y="3" width="18" height="18" rx="3"/>
-                    <circle cx="8.5" cy="8.5" r="1.5"/>
-                    <path d="M21 15l-5-5L5 21"/>
-                  </svg>
-                </span>
-                <span>Image</span>
-              </button>
-              <button
-                className="attach-popup-item"
-                onClick={() => videoInputRef.current?.click()}
-              >
-                <span className="popup-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <rect x="2" y="5" width="15" height="14" rx="2"/>
-                    <path d="M17 9l5-3v12l-5-3V9z"/>
-                  </svg>
-                </span>
-                <span>Video</span>
-              </button>
-              <button
-                className="attach-popup-item"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <span className="popup-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="9" y1="13" x2="15" y2="13"/>
-                    <line x1="9" y1="17" x2="13" y2="17"/>
-                  </svg>
-                </span>
-                <span>File</span>
-              </button>
-              <button
-                className="attach-popup-item"
-                onClick={() => folderInputRef.current?.click()}
-              >
-                <span className="popup-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-                  </svg>
-                </span>
-                <span>Folder</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="input-language">
-          <LanguageSelector />
-        </div>
-
-        <textarea
-          ref={inputRef}
-          className="text-input"
-          placeholder={recording ? "Listening…" : "Ask anything..."}
-          value={text}
-          disabled={isLoading}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          rows={1}
-        />
-
-        <button
-          className={`mic-btn${recording ? " recording" : ""}`}
-          onClick={toggleMic}
-          disabled={isLoading}
-          title={recording ? "Stop recording" : "Voice input"}
-        >
-          {recording ? (
-            <svg width="1.125em" height="1.125em" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+          {/* Send button */}
+          <button
+            onClick={send}
+            disabled={!hasContent || isLoading}
+            title="Send"
+            style={{
+              width: '40px',
+              height: '40px',
+              flexShrink: 0,
+              borderRadius: '12px',
+              border: 'none',
+              background: 'linear-gradient(135deg, var(--pragna-gold-soft), var(--pragna-gold-deep))',
+              color: 'var(--pragna-bg)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 6px 18px rgba(0,0,0,0.34), 0 0 16px rgba(212,175,55,0.25)',
+              transition: 'all 0.15s ease',
+              opacity: (hasContent && !isLoading) ? 1 : 0.5,
+            }}
+            className="hover:shadow-[0_6px_18px_rgba(0,_0,_0,_0.34),_0_0_26px_rgba(212,_175,_55,_0.45)] active:scale-[0.94]"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path>
             </svg>
-          ) : (
-            <svg width="1.125em" height="1.125em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
-            </svg>
-          )}
-        </button>
-
-        <button
-          className="send-btn"
-          onClick={send}
-          disabled={isLoading || !hasContent}
-          title="Send message"
-        >
-          <svg width="1.125em" height="1.125em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
+          </button>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11.5px', color: 'var(--pragna-text-muted)', opacity: 0.6 }}>
+          Pragna can make mistakes. Verify important information.
+        </div>
       </div>
     </div>
   );

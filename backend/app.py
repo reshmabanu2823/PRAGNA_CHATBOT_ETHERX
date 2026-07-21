@@ -9,8 +9,11 @@ import json
 import os
 import io
 import time
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from llm_service import LLMService
 import config
 from services import memory_db
@@ -25,6 +28,7 @@ from services import vision_service
 from auth import auth_service, require_auth
 from database import db
 from chat_management_api import chat_management_bp
+from services import code_agent
 
 # Configure logging
 logging.basicConfig(
@@ -296,9 +300,9 @@ def _build_image_generation_prompt(user_prompt: str, style: str, quality: str) -
     style_hint = style_map.get(style, style_map['cinematic'])
     detail_hint = 'ultra detailed' if quality == 'hd' else 'high quality'
     return (
-        f"{user_prompt.strip()}\n\n"
-        f"Render style guidance: {style_hint}.\n"
-        f"Quality target: {detail_hint}.\n"
+        f"{user_prompt.strip()}. "
+        f"Render style guidance: {style_hint}. "
+        f"Quality target: {detail_hint}. "
         "Requirements: keep subject accurate to prompt, avoid unwanted text artifacts, maintain coherent anatomy and perspective."
     )
 
@@ -438,57 +442,78 @@ def _generate_with_runway(prompt: str, size: str):
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='static')
-CORS(app)
+CORS(app, origins=config.CORS_ALLOWED_ORIGINS, supports_credentials=True)
+
+# Rate limiter for unauthenticated, expensive-to-run endpoints (AI image/document
+# generation) - see config.AI_GENERATION_RATE_LIMIT / LIMITER_STORAGE_URI.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    storage_uri=config.LIMITER_STORAGE_URI,
+)
+
+
+@app.errorhandler(429)
+def _rate_limit_exceeded(e):
+    """Return JSON (matching every other route's error shape) instead of flask-limiter's default HTML page."""
+    return jsonify({'error': f'Rate limit exceeded: {e.description}. Please try again later.'}), 429
 
 # Initialize LLM service
 llm = LLMService()
 orchestrator = AIOrchestrator(llm)
 
 # Initialize RAG service with default knowledge base (skip if it takes too long)
-logger.info("🚀 Initializing RAG service...")
-rag = get_rag_service()
-try:
-    import threading
-    import queue
-    
-    rag_initialized = queue.Queue()
-    
-    def init_rag_with_timeout():
-        try:
-            if initialize_rag_with_defaults():
-                llm.enable_rag()
-                rag_initialized.put(True)
-            else:
-                rag_initialized.put(False)
-        except Exception as e:
-            logger.warning(f"RAG init error: {e}")
-            rag_initialized.put(False)
-    
-    # Run RAG initialization in background thread with 10 second timeout
-    rag_thread = threading.Thread(target=init_rag_with_timeout, daemon=True)
-    rag_thread.start()
-    rag_thread.join(timeout=10)
-    
+# Gated by RAG_ENABLED - the main /api/chat flow doesn't use RAG, only the
+# dedicated /api/rag/* routes do, and those lazily init get_rag_service()
+# on first call regardless. Set RAG_ENABLED=False to skip loading
+# sentence-transformers/torch/faiss at boot on memory-constrained hosts.
+if config.RAG_ENABLED:
+    logger.info("🚀 Initializing RAG service...")
+    rag = get_rag_service()
     try:
-        success = rag_initialized.get_nowait()
-        if success:
-            logger.info("✅ RAG service ready with knowledge base")
-        else:
-            logger.warning("⚠️ RAG service initialization failed")
-    except queue.Empty:
-        logger.warning("⚠️ RAG initialization timed out (taking too long); continuing without it")
-        
-except Exception as e:
-    logger.warning(f"⚠️ RAG service not available: {e}")
+        import threading
+        import queue
 
-# Start background scheduler for RAG updates (in background thread)
-logger.info("🔄 Starting RAG update scheduler...")
-try:
-    start_scheduler()
-    scheduler_status = get_scheduler_status()
-    logger.info(f"📊 Scheduler status: {scheduler_status}")
-except Exception as e:
-    logger.warning(f"⚠️ RAG scheduler error: {e}")
+        rag_initialized = queue.Queue()
+
+        def init_rag_with_timeout():
+            try:
+                if initialize_rag_with_defaults():
+                    llm.enable_rag()
+                    rag_initialized.put(True)
+                else:
+                    rag_initialized.put(False)
+            except Exception as e:
+                logger.warning(f"RAG init error: {e}")
+                rag_initialized.put(False)
+
+        # Run RAG initialization in background thread with 10 second timeout
+        rag_thread = threading.Thread(target=init_rag_with_timeout, daemon=True)
+        rag_thread.start()
+        rag_thread.join(timeout=10)
+
+        try:
+            success = rag_initialized.get_nowait()
+            if success:
+                logger.info("✅ RAG service ready with knowledge base")
+            else:
+                logger.warning("⚠️ RAG service initialization failed")
+        except queue.Empty:
+            logger.warning("⚠️ RAG initialization timed out (taking too long); continuing without it")
+
+    except Exception as e:
+        logger.warning(f"⚠️ RAG service not available: {e}")
+
+    # Start background scheduler for RAG updates (in background thread)
+    logger.info("🔄 Starting RAG update scheduler...")
+    try:
+        start_scheduler()
+        scheduler_status = get_scheduler_status()
+        logger.info(f"📊 Scheduler status: {scheduler_status}")
+    except Exception as e:
+        logger.warning(f"⚠️ RAG scheduler error: {e}")
+else:
+    logger.info("⏭️  RAG_ENABLED=False - skipping RAG init to save memory on boot")
 
 logger.info("✅ Chatbot server starting...")
 logger.info(f"✅ Using Groq model: {config.GROQ_MODEL}")
@@ -762,40 +787,48 @@ def health_check():
         health_status['errors'].append(f'❌ API key check failed: {e}')
     
     # Check 2: LLM Test Request
-    try:
-        from services.llm import _request_completion
-        test_messages = [
-            {'role': 'system', 'content': 'You are a helpful assistant. Respond with exactly: SUCCESS'},
-            {'role': 'user', 'content': 'test'}
-        ]
-        
+    # Skipped by default - Docker's HEALTHCHECK polls this endpoint every
+    # 30s, and a real completion call on every poll burns through Ollama
+    # Cloud's free-tier quota for nothing. Pass ?deep=true for the real check.
+    if request.args.get('deep', '').lower() != 'true':
+        health_status['systems']['llm'] = {'status': 'skipped', 'note': 'pass ?deep=true for a live completion check'}
+    else:
         try:
-            response = _request_completion(test_messages, config.DEFAULT_MODEL_KEY)
-            if response and 'success' in response.lower():
-                health_status['systems']['llm'] = {
-                    'status': 'healthy',
-                    'model': config.DEFAULT_MODEL_KEY,
-                    'response_length': len(response)
-                }
-            else:
-                health_status['systems']['llm'] = {
-                    'status': 'responding',
-                    'model': config.DEFAULT_MODEL_KEY,
-                    'response_sample': response[:100]
-                }
-        except RuntimeError as e:
-            if '401' in str(e) or 'not configured' in str(e).lower():
-                health_status['errors'].append(f'❌ LLM API Error: {e}')
-                health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
-            else:
-                raise
-    except Exception as e:
-        health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
-        health_status['errors'].append(f'❌ LLM check failed: {str(e)[:100]}')
+            from services.llm import _request_completion
+            test_messages = [
+                {'role': 'system', 'content': 'You are a helpful assistant. Respond with exactly: SUCCESS'},
+                {'role': 'user', 'content': 'test'}
+            ]
+
+            try:
+                response = _request_completion(test_messages, config.DEFAULT_MODEL_KEY)
+                if response and 'success' in response.lower():
+                    health_status['systems']['llm'] = {
+                        'status': 'healthy',
+                        'model': config.DEFAULT_MODEL_KEY,
+                        'response_length': len(response)
+                    }
+                else:
+                    health_status['systems']['llm'] = {
+                        'status': 'responding',
+                        'model': config.DEFAULT_MODEL_KEY,
+                        'response_sample': response[:100]
+                    }
+            except RuntimeError as e:
+                if '401' in str(e) or 'not configured' in str(e).lower():
+                    health_status['errors'].append(f'❌ LLM API Error: {e}')
+                    health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
+                else:
+                    raise
+        except Exception as e:
+            health_status['systems']['llm'] = {'status': 'error', 'error': str(e)[:200]}
+            health_status['errors'].append(f'❌ LLM check failed: {str(e)[:100]}')
     
     # Check 3: Database
     try:
-        db.session.execute('SELECT 1')
+        conn = db.get_connection()
+        conn.execute('SELECT 1')
+        conn.close()
         health_status['systems']['database'] = {'status': 'healthy'}
     except Exception as e:
         health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}
@@ -814,16 +847,23 @@ def health_check():
         health_status['systems']['cache'] = {'status': 'error', 'error': str(e)[:100]}
     
     # Check 5: RAG
-    try:
-        rag = get_rag_service()
-        rag_stats = rag.get_stats()
-        health_status['systems']['rag'] = {
-            'status': 'healthy' if rag_stats.get('enabled') else 'disabled',
-            'documents': rag_stats.get('document_count', 0),
-            'enabled': rag_stats.get('enabled', False)
-        }
-    except Exception as e:
-        health_status['systems']['rag'] = {'status': 'error', 'error': str(e)[:100]}
+    # Only touches get_rag_service() (which loads sentence-transformers/
+    # torch/faiss on first call) when RAG_ENABLED - otherwise this health
+    # check, which Docker's HEALTHCHECK polls every 30s, would force that
+    # load on every single container regardless of the setting.
+    if config.RAG_ENABLED:
+        try:
+            rag = get_rag_service()
+            rag_stats = rag.get_stats()
+            health_status['systems']['rag'] = {
+                'status': 'healthy' if rag_stats.get('enabled') else 'disabled',
+                'documents': rag_stats.get('document_count', 0),
+                'enabled': rag_stats.get('enabled', False)
+            }
+        except Exception as e:
+            health_status['systems']['rag'] = {'status': 'error', 'error': str(e)[:100]}
+    else:
+        health_status['systems']['rag'] = {'status': 'disabled', 'enabled': False}
     
     # Overall status determination
     critical_errors = [e for e in health_status['errors'] if '❌' in e]
@@ -879,9 +919,13 @@ def test_ollama():
     
     # Check 2: Can we reach Ollama?
     ollama_url = config.OLLAMA_API_URL.rstrip('/')
+    ollama_headers = {}
+    if config.OLLAMA_API_KEY:
+        ollama_headers["Authorization"] = f"Bearer {config.OLLAMA_API_KEY}"
     try:
         response = requests.get(
             f"{ollama_url}/api/tags",
+            headers=ollama_headers,
             timeout=5
         )
         response.raise_for_status()
@@ -982,6 +1026,69 @@ def models_catalog():
     })
 
 
+@app.route('/api/compare', methods=['POST'])
+@limiter.limit(config.AI_GENERATION_RATE_LIMIT)
+def compare_models():
+    """Send one prompt to several models in parallel and return each answer independently."""
+    try:
+        data = request.json or {}
+        message = (data.get('message') or '').strip()
+        model_keys = data.get('models') or []
+        language = _normalize_language_code(data.get('language', 'en'))
+
+        if not message:
+            return jsonify({'error': 'message is required'}), 400
+        if not isinstance(model_keys, list) or not model_keys:
+            return jsonify({'error': 'models must be a non-empty list'}), 400
+
+        from services.compare_service import MAX_COMPARE_MODELS, run_compare
+        if len(model_keys) > MAX_COMPARE_MODELS:
+            return jsonify({'error': f'Select at most {MAX_COMPARE_MODELS} models'}), 400
+
+        results = run_compare(message, model_keys, language=language)
+        return jsonify({'status': 'success', 'results': results})
+    except Exception as e:
+        logger.error(f"Compare mode error: {e}")
+        return jsonify({'error': 'Failed to run comparison'}), 500
+
+
+@app.route('/api/share/<token>', methods=['GET'])
+def get_shared_chat(token):
+    """Public, read-only fetch of a shared chat by its share token.
+
+    Deliberately has no @require_auth - a share link is meant to be viewable
+    by anyone holding the URL, not just the chat's owner.
+    """
+    try:
+        conn = db.get_connection()
+        c = conn.cursor()
+        c.execute(
+            'SELECT id, title, created_at FROM conversations WHERE share_token = ?',
+            (token,)
+        )
+        convo = c.fetchone()
+        if not convo:
+            conn.close()
+            return jsonify({'error': 'Shared chat not found'}), 404
+
+        c.execute(
+            'SELECT sender, text, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC, rowid ASC',
+            (convo['id'],)
+        )
+        messages = [dict(row) for row in c.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'status': 'success',
+            'title': convo['title'],
+            'created_at': convo['created_at'],
+            'messages': messages,
+        })
+    except Exception as e:
+        logger.error(f"Get shared chat error: {e}")
+        return jsonify({'error': 'Failed to load shared chat'}), 500
+
+
 @app.route('/api/world-monitor/config', methods=['GET'])
 def world_monitor_config():
     """Expose World Monitor integration metadata to the frontend dashboard."""
@@ -999,6 +1106,7 @@ def world_monitor_config():
 
 
 @app.route('/api/images/generate', methods=['POST'])
+@limiter.limit(config.AI_GENERATION_RATE_LIMIT)
 def generate_image():
     """Generate an AI image using configured provider (Runway/OpenAI/fallback)."""
     try:
@@ -1642,14 +1750,15 @@ def chat_stream():
         chat_mode = data.get('chat_mode', 'general')
         model_override = data.get('model_override')
         fallback_models = data.get('fallback_models')
-        
+        persona_system_prompt = data.get('persona_system_prompt')
+
         if not user_message:
             return jsonify({'error': 'Message cannot be empty'}), 400
-        
+
         logger.info(f"Received streaming request: {user_message[:50]}... (language: {language}, mode: {chat_mode})")
 
         def stream_orchestrated_chunks():
-            """Stream orchestrated response in JSON lines for frontend compatibility."""
+            """Stream orchestrated response as real SSE (data: <json>\\n\\n lines)."""
             result = orchestrator.handle_query(
                 user_message,
                 language=language,
@@ -1657,23 +1766,23 @@ def chat_stream():
                 chat_mode=chat_mode,
                 model_override=model_override,
                 fallback_models=fallback_models,
+                persona_system_prompt=persona_system_prompt,
             )
 
             actions = result.get('actions', [])
             sources = result.get('web_search_sources', [])
             if actions:
-                yield json.dumps({'actions': actions}) + "\n"
+                yield f"data: {json.dumps({'actions': actions})}\n\n"
             if sources:
-                yield json.dumps({'sources': sources}) + "\n"
+                yield f"data: {json.dumps({'sources': sources})}\n\n"
 
             response_text = result.get('response', '')
-            if not response_text:
-                return
-
             chunk_size = 200
             for i in range(0, len(response_text), chunk_size):
                 chunk = response_text[i:i + chunk_size]
-                yield json.dumps({'content': chunk}) + "\n"
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return Response(stream_orchestrated_chunks(), mimetype='text/event-stream')
         
@@ -1930,6 +2039,91 @@ def verify_token():
         logger.error(f"Verify error: {e}")
         return jsonify({'error': 'Token verification failed'}), 500
 
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """Request a password reset email. Always returns the same generic
+    response regardless of whether the email is registered, so this
+    endpoint can't be used to enumerate accounts."""
+    try:
+        data = request.json or {}
+        email = data.get('email', '').strip()
+        if not email:
+            return jsonify({'error': 'email is required'}), 400
+
+        auth_service.request_password_reset(email)
+
+        return jsonify({
+            'message': 'If that email is registered, a password reset link has been sent.'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}")
+        return jsonify({'error': 'Failed to process request'}), 500
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Complete a password reset using the token from the emailed link."""
+    try:
+        data = request.json or {}
+        token = data.get('token', '')
+        new_password = data.get('new_password', '')
+
+        if not token or not new_password:
+            return jsonify({'error': 'token and new_password are required'}), 400
+
+        error = auth_service.reset_password(token, new_password)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({'message': 'Password reset successfully'}), 200
+
+    except Exception as e:
+        logger.error(f"Reset password error: {e}")
+        return jsonify({'error': 'Failed to reset password'}), 500
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@require_auth
+def change_password():
+    """Change the current user's password."""
+    try:
+        data = request.json or {}
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+
+        if not current_password or not new_password:
+            return jsonify({'error': 'current_password and new_password are required'}), 400
+
+        error = auth_service.change_password(request.user_id, current_password, new_password)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({'message': 'Password updated successfully'}), 200
+
+    except Exception as e:
+        logger.error(f"Change password error: {e}")
+        return jsonify({'error': 'Failed to change password'}), 500
+
+@app.route('/api/auth/account', methods=['DELETE'])
+@require_auth
+def delete_account():
+    """Permanently delete the current user's account and all their data."""
+    try:
+        data = request.json or {}
+        password = data.get('password', '')
+
+        if not password:
+            return jsonify({'error': 'password is required'}), 400
+
+        error = auth_service.delete_account(request.user_id, password)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({'message': 'Account deleted'}), 200
+
+    except Exception as e:
+        logger.error(f"Delete account error: {e}")
+        return jsonify({'error': 'Failed to delete account'}), 500
+
 @app.route('/api/profile', methods=['GET'])
 @require_auth
 def get_profile():
@@ -1973,6 +2167,75 @@ def get_conversations():
         logger.error(f"Error fetching conversations: {e}")
         return jsonify({'error': 'Failed to fetch conversations'}), 500
 
+@app.route('/api/personas', methods=['GET'])
+@require_auth
+def list_personas():
+    """List the current user's personas"""
+    try:
+        personas = db.list_personas(request.user_id)
+        return jsonify({'personas': personas}), 200
+    except Exception as e:
+        logger.error(f"Error listing personas: {e}")
+        return jsonify({'error': 'Failed to list personas'}), 500
+
+
+@app.route('/api/personas', methods=['POST'])
+@require_auth
+def create_persona():
+    """Create a new persona for the current user"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        system_prompt = (data.get('system_prompt') or '').strip()
+
+        if not name or not system_prompt:
+            return jsonify({'error': 'name and system_prompt are required'}), 400
+
+        persona_id = db.create_persona(request.user_id, name, system_prompt)
+        persona = db.get_persona(persona_id, request.user_id)
+        return jsonify(persona), 201
+    except Exception as e:
+        logger.error(f"Error creating persona: {e}")
+        return jsonify({'error': 'Failed to create persona'}), 500
+
+
+@app.route('/api/personas/<persona_id>', methods=['PUT'])
+@require_auth
+def update_persona(persona_id):
+    """Update one of the current user's personas"""
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        system_prompt = (data.get('system_prompt') or '').strip()
+
+        if not name or not system_prompt:
+            return jsonify({'error': 'name and system_prompt are required'}), 400
+
+        updated = db.update_persona(persona_id, request.user_id, name, system_prompt)
+        if not updated:
+            return jsonify({'error': 'Persona not found'}), 404
+
+        persona = db.get_persona(persona_id, request.user_id)
+        return jsonify(persona), 200
+    except Exception as e:
+        logger.error(f"Error updating persona: {e}")
+        return jsonify({'error': 'Failed to update persona'}), 500
+
+
+@app.route('/api/personas/<persona_id>', methods=['DELETE'])
+@require_auth
+def delete_persona(persona_id):
+    """Delete one of the current user's personas"""
+    try:
+        deleted = db.delete_persona(persona_id, request.user_id)
+        if not deleted:
+            return jsonify({'error': 'Persona not found'}), 404
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f"Error deleting persona: {e}")
+        return jsonify({'error': 'Failed to delete persona'}), 500
+
+
 @app.route('/api/summarize', methods=['POST'])
 def summarize():
     """Generate a one-line summary for chat title"""
@@ -2012,6 +2275,118 @@ Assistant: {ai_response[:200]}"""
     except Exception as e:
         logger.error(f"Summarize error: {e}", exc_info=True)
         return jsonify({'summary': 'New Chat', 'error': str(e)}), 200
+
+
+@app.route('/api/summarize_chat', methods=['POST'])
+def summarize_chat():
+    """Generate a real, multi-sentence summary of a full conversation."""
+    try:
+        data = request.json or {}
+        messages_in = data.get('messages', [])
+        language = _normalize_language_code(data.get('language', 'en'))
+
+        if not messages_in:
+            return jsonify({'error': 'messages is required'}), 400
+
+        transcript_lines = []
+        for msg in messages_in:
+            speaker = 'Pragna' if msg.get('sender') == 'bot' else 'You'
+            text = (msg.get('text') or '').strip()
+            if text:
+                transcript_lines.append(f"{speaker}: {text}")
+        transcript = "\n".join(transcript_lines)
+
+        if not transcript:
+            return jsonify({'error': 'No message content to summarize'}), 400
+
+        from services.llm import generate_completion
+        prompt_messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'Summarize the following conversation in 3-5 sentences, covering '
+                    'the main topics discussed and any conclusions reached. Write the '
+                    'summary as plain prose, not a list.'
+                ),
+            },
+            {'role': 'user', 'content': transcript},
+        ]
+        summary = generate_completion(prompt_messages, language=language)
+
+        if not summary or not summary.strip():
+            return jsonify({'error': 'Failed to generate summary'}), 500
+
+        return jsonify({'summary': summary.strip()}), 200
+
+    except Exception as e:
+        logger.error(f"Summarize chat error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate summary'}), 500
+
+
+GENERATED_DOCS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'generated_docs')
+
+
+@app.route('/api/documents/generate', methods=['POST'])
+@limiter.limit(config.AI_GENERATION_RATE_LIMIT)
+def generate_document():
+    """Generate a downloadable Word/Excel/PDF/PowerPoint document from a chat prompt."""
+    try:
+        data = request.json or {}
+        fmt = (data.get('format') or '').strip().lower()
+        prompt = (data.get('prompt') or '').strip()
+        language = _normalize_language_code(data.get('language', 'en'))
+
+        allowed_formats = {'docx', 'xlsx', 'pdf', 'pptx'}
+        if fmt not in allowed_formats:
+            return jsonify({'error': f"format must be one of {sorted(allowed_formats)}"}), 400
+        if not prompt:
+            return jsonify({'error': 'prompt is required'}), 400
+
+        from services.document_generator import (
+            generate_document_structure,
+            _build_docx,
+            _build_pdf,
+            _build_pptx,
+            _build_xlsx,
+            _sanitize_filename_component,
+        )
+
+        structure = generate_document_structure(prompt, language=language)
+        if not structure or not structure.get('sections'):
+            return jsonify({'error': 'Failed to generate document content'}), 500
+
+        os.makedirs(GENERATED_DOCS_DIR, exist_ok=True)
+
+        builders = {'docx': _build_docx, 'xlsx': _build_xlsx, 'pdf': _build_pdf, 'pptx': _build_pptx}
+        subject_slug = _sanitize_filename_component(structure.get('title') or prompt)
+        filename = f"{int(time.time())}-{subject_slug}.{fmt}"
+        filepath = os.path.join(GENERATED_DOCS_DIR, filename)
+        builders[fmt](structure, filepath)
+
+        display_name = f"{structure.get('title') or prompt}.{fmt}"
+        return jsonify({
+            'download_url': f'/api/documents/download/{filename}',
+            'filename': display_name,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Document generation error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate document'}), 500
+
+
+@app.route('/api/documents/download/<path:filename>', methods=['GET'])
+def download_document(filename):
+    """Serve a previously generated document by filename."""
+    safe_name = os.path.basename(filename)
+    if safe_name != filename or safe_name in ('', '.', '..'):
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    filepath = os.path.join(GENERATED_DOCS_DIR, safe_name)
+    if not os.path.isfile(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    return send_from_directory(GENERATED_DOCS_DIR, safe_name, as_attachment=True, download_name=safe_name)
+
 
 # Register blueprints
 app.register_blueprint(chat_management_bp)
@@ -2068,6 +2443,130 @@ def _validate_api_configuration():
         logger.warning("  2. Get a valid API key from https://console.groq.com")
         logger.warning("  3. Update GROQ_API_KEY=your_key_here")
         logger.warning("  4. Restart the server\n")
+
+
+# ─── Pragna Code Agent Routes ─────────────────────────────────────────────────
+
+@app.route('/api/agent/run', methods=['POST'])
+@require_auth
+def agent_run():
+    """Streaming agentic loop endpoint (SSE).
+    Body: { task, mode, context_files, working_dir }
+    """
+    try:
+        data = request.json or {}
+        task = (data.get('task') or '').strip()
+        mode = (data.get('mode') or 'general').strip().lower()
+        context_files = data.get('context_files') or []
+        working_dir = data.get('working_dir') or None
+
+        if not task:
+            return jsonify({'error': 'task is required'}), 400
+
+        if mode not in code_agent.AGENT_SYSTEM_PROMPTS:
+            mode = 'general'
+
+        def generate():
+            try:
+                for chunk in code_agent.run_agent_stream(
+                    task=task,
+                    mode=mode,
+                    context_files=context_files,
+                    working_dir=working_dir,
+                ):
+                    yield chunk
+            except Exception as exc:
+                import json as _json
+                yield f"data: {_json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Access-Control-Allow-Origin': '*',
+            },
+        )
+    except Exception as exc:
+        logger.error(f'Agent run error: {exc}', exc_info=True)
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/agent/chat', methods=['POST'])
+@require_auth
+def agent_chat():
+    """Non-streaming single-turn agent response.
+    Body: { task, mode, history }
+    """
+    try:
+        data = request.json or {}
+        task = (data.get('task') or '').strip()
+        mode = (data.get('mode') or 'general').strip().lower()
+        history = data.get('history') or []
+
+        if not task:
+            return jsonify({'error': 'task is required'}), 400
+
+        result = code_agent.agent_chat(task=task, mode=mode, history=history)
+        return jsonify(result)
+    except Exception as exc:
+        logger.error(f'Agent chat error: {exc}', exc_info=True)
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/agent/modes', methods=['GET'])
+@require_auth
+def agent_modes():
+    """Return available agent modes and their descriptions."""
+    modes = [
+        {'id': 'general',     'label': 'General',     'icon': '🤖', 'desc': 'General coding assistant'},
+        {'id': 'code_review', 'label': 'Code Review',  'icon': '🔍', 'desc': 'Deep code review: bugs, security, style'},
+        {'id': 'app_builder', 'label': 'App Builder',  'icon': '🏗️', 'desc': 'Build complete apps from scratch'},
+        {'id': 'debug',       'label': 'Debug',        'icon': '🐛', 'desc': 'Find and fix bugs systematically'},
+        {'id': 'explain',     'label': 'Explain',      'icon': '📖', 'desc': 'Explain code and concepts clearly'},
+        {'id': 'refactor',    'label': 'Refactor',     'icon': '✨', 'desc': 'Clean up and improve existing code'},
+    ]
+    return jsonify({'modes': modes})
+
+
+@app.route('/api/agent/resume', methods=['POST'])
+@require_auth
+def agent_resume():
+    """Resume a paused agent session after the user approves/rejects a mutating tool call.
+    Body: { session_id, decision: "approve"|"reject" }
+    """
+    try:
+        data = request.json or {}
+        session_id = (data.get('session_id') or '').strip()
+        decision = (data.get('decision') or '').strip().lower()
+
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+        if decision not in ('approve', 'reject'):
+            return jsonify({'error': "decision must be 'approve' or 'reject'"}), 400
+
+        def generate():
+            try:
+                for chunk in code_agent.resume_agent_stream(session_id=session_id, decision=decision):
+                    yield chunk
+            except Exception as exc:
+                import json as _json
+                yield f"data: {_json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Access-Control-Allow-Origin': '*',
+            },
+        )
+    except Exception as exc:
+        logger.error(f'Agent resume error: {exc}', exc_info=True)
+        return jsonify({'error': str(exc)}), 500
+
 
 if __name__ == '__main__':
     _validate_api_configuration()

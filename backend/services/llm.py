@@ -54,13 +54,18 @@ def _call_ollama_direct(messages: List[Dict[str, str]]) -> str:
         "temperature": 0.7,
     }
     
+    headers = {"Content-Type": "application/json"}
+    if config.OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {config.OLLAMA_API_KEY}"
+
     logger.info(f"🚀 Calling Ollama at {endpoint}")
     logger.info(f"   Model: {config.OLLAMA_MODEL}")
     logger.info(f"   Prompt length: {len(prompt)} chars")
-    
+
     try:
         response = requests.post(
             endpoint,
+            headers=headers,
             json=payload,
             timeout=config.OLLAMA_TIMEOUT
         )
@@ -159,8 +164,8 @@ def _resolve_request_config(model_key: Optional[str]) -> Dict[str, object]:
         return {
             "provider": "ollama",
             "model": model_name,
-            "endpoint": f"{config.OLLAMA_API_URL.rstrip('/')}/chat/completions",
-            "api_key": "",
+            "endpoint": f"{config.OLLAMA_API_URL.rstrip('/')}/v1/chat/completions",
+            "api_key": config.OLLAMA_API_KEY,
             "timeout": config.OLLAMA_TIMEOUT,
             "requires_api_key": False,
             "model_key": f"ollama:{model_name}",
@@ -220,6 +225,8 @@ def _request_completion(messages: List[Dict[str, str]], model_key: Optional[str]
         "max_tokens": 1024,
         "top_p": 0.9,
     }
+    if request_cfg["provider"] == "ollama":
+        payload["think"] = False  # disable thinking mode for qwen3/deepseek-r1 models
     headers = {"Content-Type": "application/json"}
     if request_cfg["api_key"]:
         headers["Authorization"] = f"Bearer {request_cfg['api_key']}"
@@ -243,7 +250,7 @@ def _request_completion(messages: List[Dict[str, str]], model_key: Optional[str]
     
     response.raise_for_status()
     data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    return (data["choices"][0]["message"].get("content") or "").strip()
 
 
 def list_available_models() -> List[Dict[str, object]]:
@@ -332,6 +339,8 @@ def generate_completion(
 
 
     # =========== STANDARD MODE (with fallbacks) ===========
+    # ollama_only is handled by model key routing via /v1/chat/completions
+    import sys
     
     # Log API key configuration at START
     logger.info("=" * 80)
@@ -398,7 +407,7 @@ def generate_completion(
     if config.OPENAI_API_KEY:
         emergency_candidates.append(f"openai:{config.OPENAI_MODEL}")
     if config.OLLAMA_ENABLED:
-        emergency_candidates.extend(["ollama:qwen3:4b", "ollama:qwen3:8b"])
+        emergency_candidates.append(f"ollama:{config.OLLAMA_MODEL}")
     if config.GROQ_API_KEY:
         emergency_candidates.append(f"groq:{config.GROQ_MODEL}")
 

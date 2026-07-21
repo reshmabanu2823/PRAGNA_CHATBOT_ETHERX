@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import hashlib
+import secrets
 import bcrypt
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -78,7 +79,32 @@ class Database:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         ''')
-        
+
+        # Personas table (custom named system prompts)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS personas (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                system_prompt TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        ''')
+
+        # Password reset tokens - single-use, short-lived
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT 0,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        ''')
+
         conn.commit()
         conn.close()
     
@@ -110,11 +136,109 @@ class Database:
         user = c.fetchone()
         conn.close()
         return dict(user) if user else None
-    
+
+    def get_user_by_id(self, user_id):
+        """Get user by id"""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        user = c.fetchone()
+        conn.close()
+        return dict(user) if user else None
+
     def verify_password(self, stored_hash, password):
         """Verify password against stored hash"""
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
-    
+
+    def update_password(self, user_id, new_password):
+        """Hash and store a new password for a user"""
+        password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute(
+            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (password_hash, user_id),
+        )
+        conn.commit()
+        updated = c.rowcount > 0
+        conn.close()
+        return updated
+
+    def delete_user(self, user_id):
+        """Permanently delete a user and all their data.
+
+        SQLite foreign keys aren't enforced here (no PRAGMA foreign_keys=ON),
+        so child rows are deleted explicitly in dependency order rather than
+        relying on cascade.
+        """
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute(
+            'DELETE FROM messages WHERE conversation_id IN '
+            '(SELECT id FROM conversations WHERE user_id = ?)',
+            (user_id,),
+        )
+        c.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
+        c.execute('DELETE FROM api_usage WHERE user_id = ?', (user_id,))
+        c.execute('DELETE FROM personas WHERE user_id = ?', (user_id,))
+        c.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.commit()
+        deleted = c.rowcount > 0
+        conn.close()
+        return deleted
+
+    def get_user_by_email(self, email):
+        """Get user by email"""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('SELECT * FROM users WHERE email = ?', (email,))
+        user = c.fetchone()
+        conn.close()
+        return dict(user) if user else None
+
+    # PASSWORD RESET
+    def create_password_reset_token(self, user_id, ttl_minutes=60):
+        """Generate a single-use reset token, invalidating any earlier
+        unused tokens for this user first."""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute(
+            'UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0',
+            (user_id,),
+        )
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
+        c.execute(
+            'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)',
+            (token, user_id, expires_at.isoformat()),
+        )
+        conn.commit()
+        conn.close()
+        return token
+
+    def get_valid_reset_token(self, token):
+        """Return the token row if it exists, is unused, and hasn't expired."""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('SELECT * FROM password_reset_tokens WHERE token = ?', (token,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return None
+        row = dict(row)
+        if row['used']:
+            return None
+        if datetime.fromisoformat(row['expires_at']) < datetime.utcnow():
+            return None
+        return row
+
+    def mark_reset_token_used(self, token):
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('UPDATE password_reset_tokens SET used = 1 WHERE token = ?', (token,))
+        conn.commit()
+        conn.close()
+
     # CONVERSATION MANAGEMENT
     def create_conversation(self, user_id, title, language='en'):
         """Create new conversation"""
@@ -227,26 +351,91 @@ class Database:
         """Get user statistics"""
         conn = self.get_connection()
         c = conn.cursor()
-        
+
         # Total tokens
         c.execute('''
             SELECT SUM(tokens_used) as total_tokens FROM api_usage
             WHERE user_id = ?
         ''', (user_id,))
         total_tokens = c.fetchone()['total_tokens'] or 0
-        
+
         # Total conversations
         c.execute('''
             SELECT COUNT(*) as count FROM conversations
             WHERE user_id = ? AND is_archived = 0
         ''', (user_id,))
         total_conversations = c.fetchone()['count']
-        
+
         conn.close()
         return {
             'total_tokens': total_tokens,
             'total_conversations': total_conversations
         }
+
+    # PERSONA MANAGEMENT
+    def create_persona(self, user_id, name, system_prompt):
+        """Create a new persona for a user"""
+        persona_id = hashlib.md5(f"{user_id}{name}{datetime.now()}".encode()).hexdigest()
+
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO personas (id, user_id, name, system_prompt)
+            VALUES (?, ?, ?, ?)
+        ''', (persona_id, user_id, name, system_prompt))
+        conn.commit()
+        conn.close()
+        return persona_id
+
+    def list_personas(self, user_id):
+        """List all personas belonging to a user"""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('''
+            SELECT * FROM personas WHERE user_id = ? ORDER BY created_at ASC
+        ''', (user_id,))
+        personas = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return personas
+
+    def get_persona(self, persona_id, user_id):
+        """Get a single persona, scoped to its owner"""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('''
+            SELECT * FROM personas WHERE id = ? AND user_id = ?
+        ''', (persona_id, user_id))
+        persona = c.fetchone()
+        conn.close()
+        return dict(persona) if persona else None
+
+    def update_persona(self, persona_id, user_id, name, system_prompt):
+        """Update a persona's name/system_prompt. Returns False if it doesn't belong to user_id."""
+        if not self.get_persona(persona_id, user_id):
+            return False
+
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('''
+            UPDATE personas
+            SET name = ?, system_prompt = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+        ''', (name, system_prompt, persona_id, user_id))
+        conn.commit()
+        conn.close()
+        return True
+
+    def delete_persona(self, persona_id, user_id):
+        """Delete a persona. Returns False if it doesn't belong to user_id."""
+        if not self.get_persona(persona_id, user_id):
+            return False
+
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('DELETE FROM personas WHERE id = ? AND user_id = ?', (persona_id, user_id))
+        conn.commit()
+        conn.close()
+        return True
 
 # Global instance
 db = Database()

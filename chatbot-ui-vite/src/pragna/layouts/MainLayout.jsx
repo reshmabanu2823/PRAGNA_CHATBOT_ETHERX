@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { Menu } from 'lucide-react'
+import { useContext, useState } from 'react'
+import { Menu, PanelLeft } from 'lucide-react'
 import Sidebar from '../components/Sidebar'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { ChatContext } from '../../context/ChatContext'
 import { motion, AnimatePresence } from 'framer-motion'
-import etherxLogo from '../../assets/etherx-logo.png'
 
 const MainLayout = ({
   children,
@@ -16,15 +16,17 @@ const MainLayout = ({
   onNewChat,
   onLogout,
   userProfile,
+  onOpenSettings,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const { sidebarOpen, toggleSidebar } = useContext(ChatContext)
 
   return (
-    <div className="pragna-shell flex h-screen overflow-hidden bg-[#f8fafc]">
+    <div className="pragna-shell flex h-screen overflow-hidden bg-transparent">
       {/* Desktop Sidebar */}
-      {isDesktop && (
-        <div className="w-72 flex-shrink-0 border-r border-border bg-white">
+      {isDesktop && sidebarOpen && (
+        <div style={{ width: '340px' }} className="flex-shrink-0">
           <Sidebar
             activeView={activeView}
             onViewChange={onViewChange}
@@ -35,6 +37,7 @@ const MainLayout = ({
             onNewChat={onNewChat}
             onLogout={onLogout}
             userProfile={userProfile}
+            onOpenSettings={onOpenSettings}
           />
         </div>
       )}
@@ -55,7 +58,7 @@ const MainLayout = ({
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25 }}
-              className="fixed left-0 top-0 bottom-0 w-80 bg-white z-50 shadow-premium-lg"
+              className="fixed left-0 top-0 bottom-0 w-80 z-50 shadow-premium-lg"
             >
               <Sidebar
                 activeView={activeView}
@@ -67,6 +70,7 @@ const MainLayout = ({
                 onNewChat={onNewChat}
                 onLogout={onLogout}
                 userProfile={userProfile}
+                onOpenSettings={onOpenSettings}
                 onClose={() => setMobileMenuOpen(false)}
               />
             </motion.div>
@@ -75,25 +79,40 @@ const MainLayout = ({
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="relative flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div className="relative flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Reopen sidebar button (desktop only, shown when sidebar is closed) */}
+        {isDesktop && !sidebarOpen && (
+          <button
+            onClick={toggleSidebar}
+            title="Open sidebar"
+            className="fixed top-4 left-4 z-30 p-2 rounded-lg bg-surface/80 backdrop-blur-sm border border-border hover:bg-surface-subtle transition-colors"
+          >
+            <PanelLeft size={18} className="text-[var(--pragna-text-muted)]" />
+          </button>
+        )}
+
         {/* Mobile Header */}
         {!isDesktop && (
-          <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center justify-between">
+          <div className="sticky top-0 z-20 bg-surface/80 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center justify-between">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 -ml-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 -ml-2 rounded-lg hover:bg-surface-subtle transition-colors"
             >
-              <Menu size={20} className="text-gray-600" />
+              <Menu size={20} className="text-[var(--pragna-text-muted)]" />
             </button>
             <div className="flex items-center gap-2">
-              <img src={etherxLogo} alt="EtherX" className="header-logo-small" />
-              <span className="project-name">PRAGNA I-A</span>
+              <div className="w-[26px] h-[26px] rounded-[8px] bg-gradient-to-br from-accent-400 to-accent-700 flex items-center justify-center text-[var(--pragna-bg)] font-extrabold text-xs shadow-[0_2px_8px_rgba(0,0,0,0.28),0_0_14px_rgba(212,175,55,0.25)]">
+                P
+              </div>
+              <span className="text-[13px] font-bold tracking-[1.5px] text-accent-500 whitespace-nowrap">
+                PRAGNA I-A
+              </span>
             </div>
             <div className="w-8" />
           </div>
         )}
         
-        <main className="flex-1 flex flex-col min-h-0">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {children}
         </main>
       </div>

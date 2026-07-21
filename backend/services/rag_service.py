@@ -9,12 +9,12 @@ import pickle
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 
-try:
-    from sentence_transformers import SentenceTransformer
-    import faiss
-    HAS_RAG_DEPS = True
-except ImportError:
-    HAS_RAG_DEPS = False
+# sentence_transformers/faiss are NOT imported at module level - importing
+# the sentence_transformers package alone (even without instantiating a
+# model) transitively imports torch, which costs ~700MB+ RSS per process.
+# They're imported lazily inside RAGService.__init__ instead, so a process
+# that never constructs a RAGService (RAG_ENABLED=False) never pays that
+# cost. See config.RAG_ENABLED.
 
 import config
 from services.cache_service import get_cache_service
@@ -37,20 +37,27 @@ class RAGService:
     
     def __init__(self):
         """Initialize RAG service with sentence transformers and FAISS."""
-        self.enabled = HAS_RAG_DEPS
         self.model = None
         self.index = None
         self.metadata = []
         self.cache = get_cache_service()
         self.documents = []
-        
+
+        global SentenceTransformer, faiss
+        try:
+            from sentence_transformers import SentenceTransformer
+            import faiss
+            self.enabled = True
+        except ImportError:
+            self.enabled = False
+
         if not self.enabled:
             logger.warning(
                 "⚠️ RAG dependencies not installed. "
                 "Install: pip install sentence-transformers faiss-cpu"
             )
             return
-        
+
         try:
             logger.info(f"🚀 Loading RAG embedding model: {RAG_MODEL_NAME}")
             self.model = SentenceTransformer(RAG_MODEL_NAME)
