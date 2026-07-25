@@ -93,6 +93,14 @@ class AuthService:
         real account. Always call this the same way regardless of outcome -
         callers should return an identical response either way so this
         endpoint can't be used to enumerate registered emails.
+
+        The token is created synchronously (fast, local DB write) but the
+        email is dispatched on a background thread - send_email makes an
+        outbound HTTP call to Resend with a 15s timeout, and doing that
+        inline made the /api/auth/forgot-password request (and the "Send
+        reset link" button) block for however long Resend took to respond.
+        The token already exists by the time this returns, so the reset link
+        works immediately even if the email itself is still in flight.
         """
         user = db.get_user_by_email(email)
         if not user:
@@ -102,7 +110,12 @@ class AuthService:
         reset_url = f"{config.FRONTEND_URL}/reset-password?token={token}"
 
         from services.email_service import send_password_reset_email
-        send_password_reset_email(user['email'], reset_url)
+        import threading
+        threading.Thread(
+            target=send_password_reset_email,
+            args=(user['email'], reset_url),
+            daemon=True,
+        ).start()
 
     @staticmethod
     def reset_password(token, new_password):
