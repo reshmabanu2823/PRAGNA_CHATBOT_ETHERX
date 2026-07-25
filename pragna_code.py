@@ -459,9 +459,9 @@ MODES = {
 
 TOOL_DOCS = """
 To call a tool, output EXACTLY:
-<tool_call>
+[[TOOL]]
 {"tool": "name", "args": {"param": "value"}}
-</tool_call>
+[[/TOOL]]
 
 Available tools:
 - read_file(path)               — Read a file's contents
@@ -472,7 +472,7 @@ Available tools:
 - run_command(command, cwd?)    — Run a shell command
 - search_code(pattern, path?, file_pattern?)  — Grep across files
 
-Rules: One <tool_call> per response. Wait for the tool result before the next call.
+Rules: One [[TOOL]] block per response. Wait for the tool result before the next call.
 """
 
 MAX_ITERS = 20
@@ -499,8 +499,12 @@ def _call_ollama(messages: list) -> str:
     data = resp.json()
     return (data["choices"][0]["message"].get("content") or "").strip()
 
+# [[TOOL]]...[[/TOOL]] rather than the more obvious <tool_call>...</tool_call>:
+# Ollama's cloud API (used for OLLAMA_MODEL=nemotron-3-super:cloud) 500s
+# whenever <tool_call> appears in the system prompt - it collides with that
+# model's own reserved native tool-calling template tag server-side.
 def _extract_tool_call(text: str) -> Optional[dict]:
-    m = re.search(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, re.DOTALL)
+    m = re.search(r"\[\[TOOL\]\]\s*(\{.*?\})\s*\[\[/TOOL\]\]", text, re.DOTALL)
     if not m:
         return None
     try:
@@ -538,10 +542,27 @@ def run_agent(session: Session, task: str):
 
         # Extract tool call if present
         tool_call = _extract_tool_call(text)
-        thought = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL).strip()
+        thought = re.sub(r"\[\[TOOL\]\].*?\[\[/TOOL\]\]", "", text, flags=re.DOTALL).strip()
 
         if thought:
             print_thought(thought)
+
+        # The model sometimes emits an opening [[TOOL]] tag but malforms the
+        # JSON inside it (usually a long file's content breaking escaping) -
+        # without this check that fell through to the "no tool call" branch
+        # below and got printed to the user as if it were the finished
+        # answer, silently dropping the file write entirely.
+        if "[[TOOL]]" in text and not tool_call:
+            print_error("Model emitted a malformed [[TOOL]] block (invalid JSON) - asking it to retry.")
+            session.messages.append({"role": "assistant", "content": text})
+            session.messages.append({
+                "role": "user",
+                "content": (
+                    "Your [[TOOL]] block was not valid JSON (check for unescaped quotes/newlines "
+                    "in string values). Retry the same tool call with strictly valid JSON."
+                )
+            })
+            continue
 
         if tool_call:
             tool_name = tool_call["tool"]
@@ -590,8 +611,11 @@ class Session:
         """Reset the conversation history with the mode system prompt."""
         mode_cfg = MODES.get(self.mode, MODES["general"])
         system = mode_cfg["prompt"]
-        if self.mode in ("app_builder", "debug", "refactor"):
-            system += "\n\n" + TOOL_DOCS
+        # Tool dispatch isn't mode-gated (dispatch_tool/confirm_action work the
+        # same regardless of self.mode), so every mode needs to know the
+        # [[TOOL]] syntax - otherwise the model just describes file writes
+        # in chat instead of actually calling write_file/create_file.
+        system += "\n\n" + TOOL_DOCS
         system += f"\n\nCurrent working directory: {self.cwd}"
         self.messages = [{"role": "system", "content": system}]
         
