@@ -28,59 +28,59 @@ LANGUAGE_NAMES = {
 # Language greetings with extended multilingual responses
 GREETINGS = {
     'en': [
-        "Hello! 👋 I'm Pragna, your AI assistant. Ask me about any topic!",
-        "Hi there! 🎉 Ready to help. What would you like to discuss?",
-        "Welcome! 🌟 Let's have a great conversation.",
+        "Hello! I'm Pragna, your AI assistant. Ask me about any topic!",
+        "Hi there! Ready to help. What would you like to discuss?",
+        "Welcome! Let's have a great conversation.",
     ],
     'hi': [
-        "नमस्ते! 👋 मैं प्रज्ञा हूँ, आपका AI सहायक। कुछ भी पूछें!",
-        "हाय! 🎉 मदद करने के लिए तैयार हूँ। बातचीत करते हैं?",
-        "स्वागत है! 🌟 एक बेहतरीन बातचीत करते हैं।",
+        "नमस्ते! मैं प्रज्ञा हूँ, आपका AI सहायक। कुछ भी पूछें!",
+        "हाय! मदद करने के लिए तैयार हूँ। बातचीत करते हैं?",
+        "स्वागत है! एक बेहतरीन बातचीत करते हैं।",
     ],
     'ta': [
-        "வணக்கம்! 👋 நான் ப்ரğனா, உங்கள் AI உதவியாளர். கேளுங்கள்!",
-        "ஹாய்! 🎉 உதவ தயாரmon். என்ன பேச விரும்புகிறீர்கள்?",
-        "வரவேற்கிறோம்! 🌟 அற்புத உரையாடலுக்கு செல்வோம்।",
+        "வணக்கம்! நான் ப்ரğனா, உங்கள் AI உதவியாளர். கேளுங்கள்!",
+        "ஹாய்! உதவ தயாரmon். என்ன பேச விரும்புகிறீர்கள்?",
+        "வரவேற்கிறோம்! அற்புத உரையாடலுக்கு செல்வோம்।",
     ],
     'te': [
-        "నమస్కారం! 👋 నేను ఆలోచన, మీ AI సహాయకుడు. ఏదైనా అడగండి!",
-        "హాయ్‌! 🎉 సహాయం చేయడానికి సిద్ధంగా ఉన్నాను. ఏమి చర్చించాలనుకుంటున్నారు?",
-        "స్వాగతం! 🌟 ఒక అద్భుత సంభాషణ చేద్దాం।",
+        "నమస్కారం! నేను ఆలోచన, మీ AI సహాయకుడు. ఏదైనా అడగండి!",
+        "హాయ్‌! సహాయం చేయడానికి సిద్ధంగా ఉన్నాను. ఏమి చర్చించాలనుకుంటున్నారు?",
+        "స్వాగతం! ఒక అద్భుత సంభాషణ చేద్దాం।",
     ],
     'kn': [
-        "ನಮಸ್ಕಾರ! 👋 ನಾನು ಪ್ರಾಗ್ಞ, ನಿಮ್ಮ AI ಸಹಾಯಕ. ಯಾವುದೇ ಕೇಳಿ!",
-        "ಹೇ! 🎉 ಸಹಾಯ ಮಾಡಲು ಸಿದ್ಧವಾಗಿದೆ. ಇನ್ನೆಂ ಚರ್ಚೆ ಮಾಡಲಿ?",
-        "ಸ್ವಾಗತ! 🌟 ಒಂದು ಅದ್ಭುತ ಕಥೋಪಕಥನೆ ಮಾಡೋಣ।",
+        "ನಮಸ್ಕಾರ! ನಾನು ಪ್ರಾಗ್ಞ, ನಿಮ್ಮ AI ಸಹಾಯಕ. ಯಾವುದೇ ಕೇಳಿ!",
+        "ಹೇ! ಸಹಾಯ ಮಾಡಲು ಸಿದ್ಧವಾಗಿದೆ. ಇನ್ನೆಂ ಚರ್ಚೆ ಮಾಡಲಿ?",
+        "ಸ್ವಾಗತ! ಒಂದು ಅದ್ಭುತ ಕಥೋಪಕಥನೆ ಮಾಡೋಣ।",
     ],
     'ml': [
-        "നമസ്കാരം! 👋 ഞാൻ പ്രാണ, നിങ്ങളുടെ AI സഹായി. എന്തിനെങ്കിലും ചോദിക്കുക!",
-        "ഹായ്! 🎉 സഹായിക്കാൻ തയ്യാറാണ്. എന്ത് ചിന്തിച്ച് നിൽക്കാൻ നിങ്ങളായിരിക്കും?",
-        "സ്വാഗതം! 🌟 മനോഹരമായ സംഭാഷണം നടത്തേക്കുക.",
+        "നമസ്കാരം! ഞാൻ പ്രാണ, നിങ്ങളുടെ AI സഹായി. എന്തിനെങ്കിലും ചോദിക്കുക!",
+        "ഹായ്! സഹായിക്കാൻ തയ്യാറാണ്. എന്ത് ചിന്തിച്ച് നിൽക്കാൻ നിങ്ങളായിരിക്കും?",
+        "സ്വാഗതം! മനോഹരമായ സംഭാഷണം നടത്തേക്കുക.",
     ],
     'mr': [
-        "नमस्कार! 👋 मी प्राया, आपले AI सहायक. कुछ पूछा!",
-        "हाय! 🎉 मदत करांर तयार आहे. चर्चा करू?",
-        "स्वागत! 🌟 छान संभाषण करूया.",
+        "नमस्कार! मी प्राया, आपले AI सहायक. कुछ पूछा!",
+        "हाय! मदत करांर तयार आहे. चर्चा करू?",
+        "स्वागत! छान संभाषण करूया.",
     ],
     'gu': [
-        "નમસ્તે! 👋 હું પ્રાન, તમારો AI સહાયક. કોઈ પણ પૂછો!",
-        "હાય! 🎉 મદદ કરવા માટે તૈયાર. શું ચર્ચા કરવી છે?",
-        "સ્વાગત! 🌟 શાનદાર કથોપકથન કરીએ.",
+        "નમસ્તે! હું પ્રાન, તમારો AI સહાયક. કોઈ પણ પૂછો!",
+        "હાય! મદદ કરવા માટે તૈયાર. શું ચર્ચા કરવી છે?",
+        "સ્વાગત! શાનદાર કથોપકથન કરીએ.",
     ],
     'pa': [
-        "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! 👋 ਮੈਂ ਪ੍ਰਾਨਾ, ਤੁਹਾਡਾ AI ਸਹਾਇਕ. ਕੁਝ ਪੁੱਛੋ!",
-        "ਹੇ! 🎉 ਮਦਦ ਕਰਨ ਲਈ ਤਿਆਰ. ਕੀ ਚਰਚਾ ਕਰਨੀ ਹੈ?",
-        "ਸ੍ਵਾਗਤ! 🌟 ਸ਼ਾਨਦਾਰ ਗੱਲਬਾਤ ਕਰੀਏ।",
+        "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ ਪ੍ਰਾਨਾ, ਤੁਹਾਡਾ AI ਸਹਾਇਕ. ਕੁਝ ਪੁੱਛੋ!",
+        "ਹੇ! ਮਦਦ ਕਰਨ ਲਈ ਤਿਆਰ. ਕੀ ਚਰਚਾ ਕਰਨੀ ਹੈ?",
+        "ਸ੍ਵਾਗਤ! ਸ਼ਾਨਦਾਰ ਗੱਲਬਾਤ ਕਰੀਏ।",
     ],
     'bn': [
-        "নমস্কার! 👋 আমি প্রাণ, আপনার AI সহায়ক. কিছু জিজ্ঞাসা করুন!",
-        "হাই! 🎉 সাহায্য করতে প्রস्तুत. কী আলোচনা করব?",
-        "স্বাগতম! 🌟 একটি দুর্দান্ত কথোপকথন করি।",
+        "নমস্কার! আমি প্রাণ, আপনার AI সহায়ক. কিছু জিজ্ঞাসা করুন!",
+        "হাই! সাহায্য করতে প्রস्तুत. কী আলোচনা করব?",
+        "স্বাগতম! একটি দুর্দান্ত কথোপকথন করি।",
     ],
     'ur': [
-        "السلام علیکم! 👋 میں پ्राना ہوں، آپ کے AI مدد گار۔ کچھ پوچھیں!",
-        "ہائے! 🎉 مدد کے لیے تیار۔ کیا بات کریں گے?",
-        "خوش آمدید! 🌟 ایک بہترین گفتگو کریں۔",
+        "السلام علیکم! میں پ्राना ہوں، آپ کے AI مدد گار۔ کچھ پوچھیں!",
+        "ہائے! مدد کے لیے تیار۔ کیا بات کریں گے?",
+        "خوش آمدید! ایک بہترین گفتگو کریں۔",
     ],
 }
 
@@ -128,24 +128,24 @@ GENERAL_RESPONSES = [
 # General greeting responses organized by language
 GREETING_RESPONSES_MULTILINGUAL = {
     "en": [
-        "Hello! 👋 I'm Pragna, an AI assistant. Feel free to ask me about blockchain, AI, cloud computing, cybersecurity, data science, web development, or many other topics!",
-        "Hi there! 🎉 Thanks for chatting with me. I'm here to help answer questions and have conversations. What would you like to discuss?",
-        "Welcome! 👋 I'm happy to chat with you. Ask me anything!",
+        "Hello! I'm Pragna, an AI assistant. Feel free to ask me about blockchain, AI, cloud computing, cybersecurity, data science, web development, or many other topics!",
+        "Hi there! Thanks for chatting with me. I'm here to help answer questions and have conversations. What would you like to discuss?",
+        "Welcome! I'm happy to chat with you. Ask me anything!",
     ],
     "hi": [
-        "नमस्ते! 👋 मैं प्रज्ञा हूँ, एक AI सहायक। मुझसे ब्लॉकचेन, AI, क्लाउड कंप्यूटिंग, साइबर सुरक्षा, डेटा विज्ञान, वेब विकास या कई अन्य विषयों के बारे में पूछें!",
-        "हाय! 🎉 मुझसे बात करने के लिए धन्यवाद। मैं आपके प्रश्नों का उत्तर देने और बातचीत करने के लिए यहाँ हूँ। क्या पूछना चाहते हैं?",
-        "स्वागत है! 👋 मुझे आपके साथ बातचीत करना अच्छा लगता है। मुझसे कुछ भी पूछें!",
+        "नमस्ते! मैं प्रज्ञा हूँ, एक AI सहायक। मुझसे ब्लॉकचेन, AI, क्लाउड कंप्यूटिंग, साइबर सुरक्षा, डेटा विज्ञान, वेब विकास या कई अन्य विषयों के बारे में पूछें!",
+        "हाय! मुझसे बात करने के लिए धन्यवाद। मैं आपके प्रश्नों का उत्तर देने और बातचीत करने के लिए यहाँ हूँ। क्या पूछना चाहते हैं?",
+        "स्वागत है! मुझे आपके साथ बातचीत करना अच्छा लगता है। मुझसे कुछ भी पूछें!",
     ],
     "ta": [
-        "வணக்கம்! 👋 நான் ப्रGyaan, ஒரு AI உதவியாளர். ப்blॉcks்chcain, AI, க्cloud कomputing, साइber保সएरता,데이타 வScience, வेb फDevelopment,또는 மேலும் பல விഷയங்களைபற்றி என்னிடம் கேளுங்கள!",
+        "வணக்கம்! நான் ப्रGyaan, ஒரு AI உதவியாளர். ப்blॉcks்chcain, AI, க्cloud कomputing, साइber保সएरता,데이타 வScience, வेb फDevelopment,또는 மேலும் பல விഷയங்களைபற்றி என்னிடம் கேளுங்கள!",
     ],
 }
 
 GREETING_RESPONSES = [
-    "Hello! 👋 I'm Pragna, an AI assistant. Feel free to ask me about blockchain, AI, cloud computing, cybersecurity, data science, web development, or many other topics. (Running in demo mode - some API features are limited)",
-    "Hi there! 🎉 Thanks for chatting with me. I'm here to help answer questions and have conversations. What would you like to discuss?",
-    "Welcome! 👋 I'm happy to chat with you. Ask me anything - whether it's about technology, concepts, or just having a conversation!",
+    "Hello! I'm Pragna, an AI assistant. Feel free to ask me about blockchain, AI, cloud computing, cybersecurity, data science, web development, or many other topics. (Running in demo mode - some API features are limited)",
+    "Hi there! Thanks for chatting with me. I'm here to help answer questions and have conversations. What would you like to discuss?",
+    "Welcome! I'm happy to chat with you. Ask me anything - whether it's about technology, concepts, or just having a conversation!",
 ]
 
 def _format_response_for_mode(content: str, chat_mode: str, language: str) -> str:
@@ -165,32 +165,32 @@ def _format_response_for_mode(content: str, chat_mode: str, language: str) -> st
     sys.stderr.flush()
     mode_instructions = {
         "explain_concepts": {
-            "en": "📚 **Explanation Mode**: Breaking down the concept into clear, simple parts:\n\n",
-            "hi": "📚 **व्याख्या मोड**: अवधारणा को स्पष्ट, सरल भागों में तोड़ना:\n\n",
-            "ta": "📚 **விளக்கம் பயன்முறை**: கருத்தை தெளிவான, எளிய பகுதிகளாக பிரிப்பது:\n\n",
-            "te": "📚 **వివరణ మోడ్**: కన్సెప్ట్‌ను స్పష్టమైన, సరళ భాగాలుగా విభజించడం:\n\n",
-            "kn": "📚 **ವಿವರಣೆ ಮೋಡ್**: ಪರಿಕಲ್ಪನೆಯನ್ನು ಸ್ಪಷ್ಟ, ಸರಳ ಭಾಗಗಳಾಗಿ ವಿಭಜಿಸುವುದು:\n\n",
+            "en": "**Explanation Mode**: Breaking down the concept into clear, simple parts:\n\n",
+            "hi": "**व्याख्या मोड**: अवधारणा को स्पष्ट, सरल भागों में तोड़ना:\n\n",
+            "ta": "**விளக்கம் பயன்முறை**: கருத்தை தெளிவான, எளிய பகுதிகளாக பிரிப்பது:\n\n",
+            "te": "**వివరణ మోడ్**: కన్సెప్ట్‌ను స్పష్టమైన, సరళ భాగాలుగా విభజించడం:\n\n",
+            "kn": "**ವಿವರಣೆ ಮೋಡ್**: ಪರಿಕಲ್ಪನೆಯನ್ನು ಸ್ಪಷ್ಟ, ಸರಳ ಭಾಗಗಳಾಗಿ ವಿಭಜಿಸುವುದು:\n\n",
         },
         "generate_ideas": {
-            "en": "💡 **Creative Ideas Mode**: Brainstorming interesting ideas:\n\n",
-            "hi": "💡 **रचनात्मक विचार मोड**: दिलचस्प विचारों पर विचार-विमर्श:\n\n",
-            "ta": "💡 **படைப்பு ধারণা பயன்முறை**: சுவாரஸ்யமான ধारணைகளை ஆலோசனை செய்வது:\n\n",
-            "te": "💡 **సృజనాత్మక ఆइడియాస్ మోడ్**: ఆసక్తికరమైన ఆలోచనలు:\n\n",
-            "kn": "💡 **ಸೃಜನಶೀಲ ಆಲೋಚನೆ ಮೋಡ್**: ಆಸಕ್ತಿದಾಯಕ ಆಲೋಚನೆಗಳ ಮೇಲೆ ಚಿಂತನೆ:\n\n",
+            "en": "**Creative Ideas Mode**: Brainstorming interesting ideas:\n\n",
+            "hi": "**रचनात्मक विचार मोड**: दिलचस्प विचारों पर विचार-विमर्श:\n\n",
+            "ta": "**படைப்பு ধারণা பயன்முறை**: சுவாரஸ்யமான ধारணைகளை ஆலோசனை செய்வது:\n\n",
+            "te": "**సృజనాత్మక ఆइడియాస్ మోడ్**: ఆసక్తికరమైన ఆలోచనలు:\n\n",
+            "kn": "**ಸೃಜನಶೀಲ ಆಲೋಚನೆ ಮೋಡ್**: ಆಸಕ್ತಿದಾಯಕ ಆಲೋಚನೆಗಳ ಮೇಲೆ ಚಿಂತನೆ:\n\n",
         },
         "code_assistance": {
-            "en": "💻 **Code Mode**: Providing code examples:\n\n",
-            "hi": "💻 **कोड मोड**: कोड उदाहरण प्रदान करना:\n\n",
-            "ta": "💻 **குறியீடு பயன்முறை**: குறியீடு உதாரணங்கள் வழங்குதல்:\n\n",
-            "te": "💻 **కోడ్ మోడ్**: కోడ్ ఉదాహరణలను అందించడం:\n\n",
-            "kn": "💻 **ಕೋಡ್ ಮೋಡ್**: ಕೋಡ್ ಉದಾಹರಣೆಗಳನ್ನು ಒದಗಿಸುವುದು:\n\n",
+            "en": "**Code Mode**: Providing code examples:\n\n",
+            "hi": "**कोड मोड**: कोड उदाहरण प्रदान करना:\n\n",
+            "ta": "**குறியீடு பயன்முறை**: குறியீடு உதாரணங்கள் வழங்குதல்:\n\n",
+            "te": "**కోడ్ మోడ్**: కోడ్ ఉదాహరణలను అందించడం:\n\n",
+            "kn": "**ಕೋಡ್ ಮೋಡ್**: ಕೋಡ್ ಉದಾಹರಣೆಗಳನ್ನು ಒದಗಿಸುವುದು:\n\n",
         },
         "creative_writing": {
-            "en": "✍️ **Creative Writing Mode**: Crafting a narrative:\n\n",
-            "hi": "✍️ **रचनात्मक लेखन मोड**: एक आख्यान बनाना:\n\n",
-            "ta": "✍️ **உண்மையான எழுत்து பயன்முறை**: ஒரு கதை உருவாக்குதல்:\n\n",
-            "te": "✍️ **క్రియేటివ్ రైటింగ్ మోడ్**: ఒక కథ రూపొందించడం:\n\n",
-            "kn": "✍️ **ಸೃಜನಶೀಲ ಬರವಣಿಗೆ ಮೋಡ್**: ಒಂದು ಕಥೆ ರಚಿಸುವುದು:\n\n",
+            "en": "**Creative Writing Mode**: Crafting a narrative:\n\n",
+            "hi": "**रचनात्मक लेखन मोड**: एक आख्यान बनाना:\n\n",
+            "ta": "**உண்மையான எழுत்து பயன்முறை**: ஒரு கதை உருவாக்குதல்:\n\n",
+            "te": "**క్రియేటివ్ రైటింగ్ మోడ్**: ఒక కథ రూపొందించడం:\n\n",
+            "kn": "**ಸೃಜನಶೀಲ ಬರವಣಿಗೆ ಮೋಡ್**: ಒಂದು ಕಥೆ ರಚಿಸುವುದು:\n\n",
         }
     }
     
@@ -267,11 +267,11 @@ def get_demo_response(user_message: str, language: str = "en", chat_mode: str = 
             
             # Add demo note
             if language == "en":
-                response += "\n\n💡 *Note: This is a demo response. For live, current information and AI-powered analysis, please configure a valid Groq API key.*"
+                response += "\n\n*Note: This is a demo response. For live, current information and AI-powered analysis, please configure a valid Groq API key.*"
             elif language == "hi":
-                response += "\n\n💡 *नोट: यह एक डेमो प्रतिक्रिया है। लाइव, वर्तमान जानकारी और एआई-संचालित विश्लेषण के लिए, कृपया एक वैध Groq API कुंजी कॉन्फ़िगर करें।*"
+                response += "\n\n*नोट: यह एक डेमो प्रतिक्रिया है। लाइव, वर्तमान जानकारी और एआई-संचालित विश्लेषण के लिए, कृपया एक वैध Groq API कुंजी कॉन्फ़िगर करें।*"
             elif language == "ta":
-                response += "\n\n💡 *குறிப்பு: இது ஒரு டெமோ பதிலாகும். நேரடி, தற்போதைய தகவல் மற்றும் AI-வளா பகுப்பாய்விற்கு, தயவுசெய்து ஒரு செல்லுபடியாகும் Groq API விசையை உள்ளமைக்கவும்.*"
+                response += "\n\n*குறிப்பு: இது ஒரு டெமோ பதிலாகும். நேரடி, தற்போதைய தகவல் மற்றும் AI-வளா பகுப்பாய்விற்கு, தயவுசெய்து ஒரு செல்லுபடியாகும் Groq API விசையை உள்ளமைக்கவும்.*"
             
             return response
     
@@ -288,7 +288,7 @@ def get_demo_response(user_message: str, language: str = "en", chat_mode: str = 
     logger.debug(f"✨ After formatting: '{response[:50]}...'")
     
     if language == "en":
-        response += f"\n\n📝 To enable full AI responses, please:\n1. Visit https://console.groq.com\n2. Get your API key\n3. Update backend/.env with GROQ_API_KEY=your_key\n4. Restart the server"
+        response += f"\n\nTo enable full AI responses, please:\n1. Visit https://console.groq.com\n2. Get your API key\n3. Update backend/.env with GROQ_API_KEY=your_key\n4. Restart the server"
     
     return response
 
@@ -303,7 +303,7 @@ def is_demo_mode_available() -> bool:
 def generate_debug_response(error_details: str) -> str:
     """Generate a helpful response when demo mode isn't enabled but we still can't reach the API"""
     return (
-        "⚠️ **API Connection Error**\n\n"
+        "**API Connection Error**\n\n"
         f"Details: {error_details}\n\n"
         "**To fix this:**\n"
         "1. Get a Groq API key: https://console.groq.com\n"
