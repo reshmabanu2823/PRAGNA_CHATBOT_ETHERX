@@ -30,12 +30,30 @@ CORS_ALLOWED_ORIGINS = (
 # production so reset emails point at the real deployed frontend.
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5180').rstrip('/')
 
-# Resend (https://resend.com) for transactional email - password reset, etc.
-# Free tier, no SMTP setup needed. RESEND_FROM_EMAIL defaults to Resend's
-# shared sandbox sender, which works with no domain verification; set your
-# own verified sender once you've added a domain in Resend.
-RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
-RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Pragna-1 A <onboarding@resend.dev>')
+# SMTP for transactional email (password reset, etc). Provider-agnostic:
+# any SMTP host works, so switching providers is an env change, not a code
+# change. Port decides the encryption mode - 465 implicit TLS, anything
+# else (typically 587) STARTTLS.
+#
+#   Gmail     smtp.gmail.com       465   user = full address, pass = App
+#                                        Password from
+#                                        myaccount.google.com/apppasswords
+#                                        (needs 2-Step Verification on;
+#                                        the normal password is rejected)
+#   Brevo     smtp-relay.brevo.com 587   user = login, pass = SMTP key
+#   SendGrid  smtp.sendgrid.net    587   user = literally "apikey"
+#   Mailgun   smtp.mailgun.org     587
+#
+# SMTP_FROM_EMAIL is separate from SMTP_USERNAME on purpose: providers like
+# Brevo/SendGrid authenticate with an API credential but send from a
+# verified sender address, and those are not the same string. Defaults to
+# SMTP_USERNAME, which is the right behaviour for Gmail.
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 465))
+SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '') or SMTP_USERNAME
+SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Pragna-1 A')
 
 # Per-client-IP rate limit for the unauthenticated AI generation endpoints
 # (/api/images/generate, /api/documents/generate) - each call triggers an LLM
