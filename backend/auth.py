@@ -1,10 +1,13 @@
 import jwt
 import config
+import logging
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify
 from database import db
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 class AuthService:
     @staticmethod
@@ -96,15 +99,21 @@ class AuthService:
 
         The token is created synchronously (fast, local DB write) but the
         email is dispatched on a background thread - send_email makes an
-        outbound HTTP call to Resend with a 15s timeout, and doing that
-        inline made the /api/auth/forgot-password request (and the "Send
-        reset link" button) block for however long Resend took to respond.
-        The token already exists by the time this returns, so the reset link
-        works immediately even if the email itself is still in flight.
+        SMTP connection with a 15s timeout, and doing that inline made the
+        /api/auth/forgot-password request (and the "Send reset link" button)
+        block for however long that SMTP round-trip took. The token already
+        exists by the time this returns, so the reset link works immediately
+        even if the email itself is still in flight.
         """
         user = db.get_user_by_email(email)
         if not user:
-            return  # Deliberately silent - see docstring
+            # Silent to the *client* (see docstring) but noisy server-side:
+            # without this, an unregistered address and a successfully-sent
+            # email look identical in the logs, which makes "I requested a
+            # reset and got nothing" impossible to diagnose. Safe to log -
+            # the logs aren't the attack surface the silence protects.
+            logger.info("Password reset requested for unregistered email: %s", email)
+            return
 
         token = db.create_password_reset_token(user['id'])
         reset_url = f"{config.FRONTEND_URL}/reset-password?token={token}"
