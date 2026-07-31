@@ -74,16 +74,33 @@ services:
                      # .onrender.com). Used to build the reset link sent by
                      # email - defaults to localhost otherwise, which breaks
                      # for anyone except you on your own dev machine.
-      - key: RESEND_API_KEY
+      - key: SMTP_USERNAME
         sync: false # REQUIRED for password-reset emails to actually send.
-                     # Free key from resend.com - without it, reset tokens
+                     # SMTP login - for Gmail the full address, for SendGrid
+                     # the literal string "apikey". Without it, reset tokens
                      # still get created but no email goes out (logged as a
                      # warning server-side, request still "succeeds").
-      - key: RESEND_FROM_EMAIL
-        sync: false # Optional - defaults to Resend's shared sandbox sender
-                     # (onboarding@resend.dev), which works with no domain
-                     # setup. Set to e.g. "Pragna <noreply@yourdomain.com>"
-                     # once you've verified a domain in Resend.
+      - key: SMTP_PASSWORD
+        sync: false # REQUIRED alongside SMTP_USERNAME. For Gmail this is a
+                     # 16-character App Password from
+                     # myaccount.google.com/apppasswords (needs 2-Step
+                     # Verification on first) - the normal account password
+                     # will not authenticate. For other providers, their
+                     # SMTP key.
+      - key: SMTP_HOST
+        sync: false # Optional - defaults to smtp.gmail.com. See config.py
+                     # for the host/port table of common providers.
+      - key: SMTP_PORT
+        sync: false # Optional - defaults to 465 (implicit TLS). Use 587 for
+                     # Brevo/SendGrid/Mailgun, which upgrade via STARTTLS.
+      - key: SMTP_FROM_EMAIL
+        sync: false # Optional - defaults to SMTP_USERNAME, which is correct
+                     # for Gmail. Set this when the provider authenticates
+                     # with an API credential but sends from a separate
+                     # verified sender address (Brevo, SendGrid).
+      - key: SMTP_FROM_NAME
+        sync: false # Optional - display name on outgoing mail, defaults to
+                     # "Pragna-1 A".
       - key: RAG_ENABLED
         value: "False" # REQUIRED on Render's free tier (~512MB RAM): True
                         # eagerly loads sentence-transformers/torch/faiss in
