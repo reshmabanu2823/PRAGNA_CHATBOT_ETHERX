@@ -42,6 +42,7 @@ export const SPLASH_FADE_MS = 500;
 export default function SplashScreen({ visible = true }) {
   const [frameIndex, setFrameIndex] = useState(0);
 
+
   // Load the regional-script fonts once for the whole sequence.
   useEffect(() => {
     const link = document.createElement("link");
@@ -57,13 +58,29 @@ export default function SplashScreen({ visible = true }) {
     };
   }, []);
 
-  // Advance one frame at a time; each timeout depends only on frameIndex, so
-  // parent re-renders can't reset the sequence.
+  // Schedule every frame transition up-front against a single time origin.
+  //
+  // This used to chain one setTimeout per frame off the end of the previous
+  // one. Each hop paid for a React render plus effect scheduling, so the
+  // error accumulated instead of cancelling out - measured ~200ms of
+  // overrun per frame (and ~600ms on the first, which also waits on font
+  // loading). By the last frames the sequence was running ~700ms behind,
+  // and since App dismisses on a fixed SPLASH_TOTAL_MS deadline the tail of
+  // the sequence - "ending" and "tagline" - was cut off and never rendered
+  // at all.
+  //
+  // Scheduling from one origin means a slow frame can't push the ones after
+  // it: each transition fires at its own absolute offset, so the sequence
+  // lands on SPLASH_TOTAL_MS and stays in step with App's dismissal.
   useEffect(() => {
-    if (frameIndex >= FRAMES.length - 1) return undefined;
-    const t = setTimeout(() => setFrameIndex((i) => i + 1), FRAMES[frameIndex].duration);
-    return () => clearTimeout(t);
-  }, [frameIndex]);
+    const timers = [];
+    let offset = 0;
+    for (let i = 1; i < FRAMES.length; i++) {
+      offset += FRAMES[i - 1].duration;
+      timers.push(setTimeout(() => setFrameIndex(i), offset));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   const frame = FRAMES[frameIndex];
   const isTagline = frame.kind === "tagline";
