@@ -64,6 +64,16 @@ services:
         sync: false # REQUIRED: set a long random value in Render dashboard.
                      # If left unset, auth tokens are signed with the
                      # publicly-known default in config.py - never leave unset.
+      - key: DATABASE_URL
+        sync: false # REQUIRED - the app will not start without this
+                     # (database.py raises at boot if unset, deliberately -
+                     # see its module docstring). Supabase Postgres
+                     # connection string, Transaction Pooler mode (port
+                     # 6543), from Supabase dashboard -> Connect. Using the
+                     # direct connection (port 5432) instead will exhaust
+                     # Supabase's small direct-connection limit once this
+                     # service has more than a couple of gunicorn workers
+                     # each holding a pool open.
       - key: CORS_ALLOWED_ORIGINS
         sync: false # Set to the etherx-frontend URL once known (e.g.
                      # https://etherx-frontend.onrender.com). Defaults to "*"

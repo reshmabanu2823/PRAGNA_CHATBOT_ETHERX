@@ -9,6 +9,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 from auth import require_auth
 from database import db
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
@@ -18,26 +19,26 @@ chat_management_bp = Blueprint('chat_management', __name__, url_prefix='/api/cha
 def validate_chat_ownership(chat_id, user_id):
     """Verify that user owns the chat"""
     conn = db.get_connection()
-    c = conn.cursor()
-    c.execute('SELECT user_id FROM conversations WHERE id = ?', (chat_id,))
-    result = c.fetchone()
-    if not result:
-        # Conversation does not exist in backend database yet (local-first design).
-        # We auto-create it for the current logged-in user so they own it.
-        try:
-            c.execute('''
-                INSERT INTO conversations (id, user_id, title)
-                VALUES (?, ?, ?)
-            ''', (chat_id, user_id, "New Chat"))
-            conn.commit()
-            conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error auto-inserting conversation: {e}")
-            conn.close()
-            return False
-    conn.close()
-    return result[0] == user_id
+    try:
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM conversations WHERE id = %s', (chat_id,))
+        result = c.fetchone()
+        if not result:
+            # Conversation does not exist in backend database yet (local-first design).
+            # We auto-create it for the current logged-in user so they own it.
+            try:
+                c.execute('''
+                    INSERT INTO conversations (id, user_id, title)
+                    VALUES (%s, %s, %s)
+                ''', (chat_id, user_id, "New Chat"))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error auto-inserting conversation: {e}")
+                return False
+        return result[0] == user_id
+    finally:
+        db.release_connection(conn)
 
 
 @chat_management_bp.route('/<chat_id>/rename', methods=['PATCH'])
@@ -90,15 +91,16 @@ def pin_chat(chat_id):
         is_pinned = data.get('is_pinned', True)
         
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            UPDATE conversations 
-            SET is_pinned = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (1 if is_pinned else 0, chat_id))
-        conn.commit()
-        conn.close()
-        
+        try:
+            conn.execute('''
+                UPDATE conversations
+                SET is_pinned = %s, updated_at = NOW()
+                WHERE id = %s
+            ''', (bool(is_pinned), chat_id))
+            conn.commit()
+        finally:
+            db.release_connection(conn)
+
         return jsonify({
             'success': True,
             'chat_id': chat_id,
@@ -123,15 +125,16 @@ def archive_chat(chat_id):
             return jsonify({'error': 'Unauthorized: Chat not found or not owned by user'}), 403
         
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            UPDATE conversations 
-            SET is_archived = 1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (chat_id,))
-        conn.commit()
-        conn.close()
-        
+        try:
+            conn.execute('''
+                UPDATE conversations
+                SET is_archived = TRUE, updated_at = NOW()
+                WHERE id = %s
+            ''', (chat_id,))
+            conn.commit()
+        finally:
+            db.release_connection(conn)
+
         return jsonify({
             'success': True,
             'chat_id': chat_id,
@@ -156,17 +159,19 @@ def delete_chat(chat_id):
             return jsonify({'error': 'Unauthorized: Chat not found or not owned by user'}), 403
         
         conn = db.get_connection()
-        c = conn.cursor()
-        
-        # Delete associated messages first
-        c.execute('DELETE FROM messages WHERE conversation_id = ?', (chat_id,))
-        
-        # Delete the conversation
-        c.execute('DELETE FROM conversations WHERE id = ?', (chat_id,))
-        
-        conn.commit()
-        conn.close()
-        
+        try:
+            c = conn.cursor()
+
+            # Delete associated messages first
+            c.execute('DELETE FROM messages WHERE conversation_id = %s', (chat_id,))
+
+            # Delete the conversation
+            c.execute('DELETE FROM conversations WHERE id = %s', (chat_id,))
+
+            conn.commit()
+        finally:
+            db.release_connection(conn)
+
         return jsonify({
             'success': True,
             'chat_id': chat_id,
@@ -205,37 +210,39 @@ def share_chat(chat_id):
         share_token = secrets.token_urlsafe(32)
 
         conn = db.get_connection()
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        if title:
-            c.execute('''
-                UPDATE conversations
-                SET title = ?, share_token = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (title[:200], share_token, chat_id))
-        else:
-            c.execute('''
-                UPDATE conversations
-                SET share_token = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (share_token, chat_id))
-
-        if isinstance(messages, list) and messages:
-            # Replace any previously-synced snapshot with the current one.
-            c.execute('DELETE FROM messages WHERE conversation_id = ?', (chat_id,))
-            for msg in messages:
-                sender = (msg.get('sender') or '').strip()
-                text = (msg.get('text') or '').strip()
-                if sender not in ('user', 'bot') or not text:
-                    continue
-                message_id = secrets.token_hex(16)
+            if title:
                 c.execute('''
-                    INSERT INTO messages (id, conversation_id, sender, text)
-                    VALUES (?, ?, ?, ?)
-                ''', (message_id, chat_id, sender, text))
+                    UPDATE conversations
+                    SET title = %s, share_token = %s, updated_at = NOW()
+                    WHERE id = %s
+                ''', (title[:200], share_token, chat_id))
+            else:
+                c.execute('''
+                    UPDATE conversations
+                    SET share_token = %s, updated_at = NOW()
+                    WHERE id = %s
+                ''', (share_token, chat_id))
 
-        conn.commit()
-        conn.close()
+            if isinstance(messages, list) and messages:
+                # Replace any previously-synced snapshot with the current one.
+                c.execute('DELETE FROM messages WHERE conversation_id = %s', (chat_id,))
+                for msg in messages:
+                    sender = (msg.get('sender') or '').strip()
+                    text = (msg.get('text') or '').strip()
+                    if sender not in ('user', 'bot') or not text:
+                        continue
+                    message_id = secrets.token_hex(16)
+                    c.execute('''
+                        INSERT INTO messages (id, conversation_id, sender, text)
+                        VALUES (%s, %s, %s, %s)
+                    ''', (message_id, chat_id, sender, text))
+
+            conn.commit()
+        finally:
+            db.release_connection(conn)
 
         # Generate shareable URL (frontend will use this)
         share_url = f"/share/{share_token}"
@@ -272,11 +279,13 @@ def start_group_chat(chat_id):
         
         # Get current chat info
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM conversations WHERE id = ?', (chat_id,))
-        chat = dict(c.fetchone())
-        conn.close()
-        
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM conversations WHERE id = %s', (chat_id,))
+            chat = dict(c.fetchone())
+        finally:
+            db.release_connection(conn)
+
         # In a real implementation, you would:
         # 1. Verify each collaborator exists in the system
         # 2. Save collaborator relationships in a dedicated table
@@ -315,17 +324,19 @@ def get_chat_info(chat_id):
             return jsonify({'error': 'Unauthorized: Chat not found or not owned by user'}), 403
         
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            SELECT id, title, created_at, updated_at, is_archived, 
-                   is_pinned, share_token
-            FROM conversations 
-            WHERE id = ?
-        ''', (chat_id,))
-        
-        result = c.fetchone()
-        conn.close()
-        
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('''
+                SELECT id, title, created_at, updated_at, is_archived,
+                       is_pinned, share_token
+                FROM conversations
+                WHERE id = %s
+            ''', (chat_id,))
+
+            result = c.fetchone()
+        finally:
+            db.release_connection(conn)
+
         if not result:
             return jsonify({'error': 'Chat not found'}), 404
         

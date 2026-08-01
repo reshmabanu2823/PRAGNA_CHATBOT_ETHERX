@@ -1,131 +1,74 @@
-import sqlite3
-import json
+"""Postgres (Supabase) persistence layer.
+
+Was SQLite on local disk until it turned out every Render deploy/restart
+wiped the database - the container filesystem isn't persistent, and the
+committed backend/data/chatbot.db (an accidental git-tracked artifact from
+before *.db was added to .gitignore) is what every fresh container started
+from. Schema lives in Supabase migrations, not here - init_db() only
+verifies connectivity, it doesn't create tables.
+
+get_connection()/release_connection() check a connection out of / back
+into a pool, mirroring the old sqlite3.connect()/conn.close() call shape
+so app.py and chat_management_api.py - which both call db.get_connection()
+directly rather than going through a Database method - needed the smallest
+possible change (release_connection() instead of close(), %s instead of
+?, plus a dict_row cursor wherever the code reads columns by name). A
+context-manager-only get_connection() would have been cleaner in
+isolation, but broken every one of those call sites.
+"""
 import hashlib
 import secrets
 import bcrypt
-from datetime import datetime, timedelta
-from pathlib import Path
-import config
+from datetime import datetime, timedelta, timezone
 
-DB_PATH = Path("data/chatbot.db")
-DB_PATH.parent.mkdir(exist_ok=True)
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+import config
 
 class Database:
     def __init__(self):
+        if not config.DATABASE_URL:
+            raise RuntimeError(
+                'DATABASE_URL is not set. Postgres (Supabase) is required - '
+                'there is no SQLite fallback (that mode silently lost all '
+                'data on every deploy). Set DATABASE_URL to a Supabase '
+                'connection string (Transaction Pooler, port 6543).'
+            )
+        # min_size=1 keeps this cheap at idle; max_size covers a handful of
+        # concurrent requests per gunicorn worker without needing to tune it.
+        self._pool = ConnectionPool(config.DATABASE_URL, min_size=1, max_size=10, open=True)
         self.init_db()
-    
+
     def get_connection(self):
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        return conn
-    
+        """Check a connection out of the pool. Caller must call
+        release_connection() when done (finally block), and must call
+        conn.commit() explicitly after writes - autocommit is off, matching
+        the old sqlite3 default."""
+        return self._pool.getconn()
+
+    def release_connection(self, conn):
+        """Return a connection to the pool. If a write failed partway
+        through, roll back first - handing back a connection mid-transaction
+        would poison it for whoever borrows it next."""
+        try:
+            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+                conn.rollback()
+        except Exception:
+            pass
+        self._pool.putconn(conn)
+
     def init_db(self):
-        """Initialize database tables"""
+        """Verify connectivity. Schema is managed via Supabase migrations,
+        not app-startup DDL - a mismatch here should fail loudly at boot
+        rather than silently running against tables that don't exist."""
         conn = self.get_connection()
-        c = conn.cursor()
-        
-        # Users table
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1
-            )
-        ''')
-        
-        # Conversations table
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                language TEXT DEFAULT 'en',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_archived BOOLEAN DEFAULT 0,
-                is_pinned BOOLEAN DEFAULT 0,
-                share_token TEXT,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-        ''')
-        
-        # Messages table
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                sender TEXT NOT NULL,
-                text TEXT NOT NULL,
-                language TEXT DEFAULT 'en',
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                tokens_used INTEGER DEFAULT 0,
-                FOREIGN KEY(conversation_id) REFERENCES conversations(id)
-            )
-        ''')
-        
-        # API usage tracking
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS api_usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                endpoint TEXT,
-                tokens_used INTEGER,
-                cost REAL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-        ''')
+        try:
+            conn.execute('SELECT 1 FROM users LIMIT 1')
+        finally:
+            self.release_connection(conn)
 
-        # Personas table (custom named system prompts)
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS personas (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                system_prompt TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-        ''')
-
-        # Password reset tokens - single-use, short-lived
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS password_reset_tokens (
-                token TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP NOT NULL,
-                used BOOLEAN DEFAULT 0,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-        ''')
-
-        # Signups awaiting OTP verification. password_hash is stored (never
-        # the plaintext password) so the row can sit here for a few minutes
-        # without holding a secret in a more sensitive form than the users
-        # table itself does. One row per email - a new request-otp call
-        # overwrites the previous pending attempt for that address rather
-        # than accumulating rows.
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS pending_registrations (
-                email TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                otp_code TEXT NOT NULL,
-                attempts INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP NOT NULL
-            )
-        ''')
-
-        conn.commit()
-        conn.close()
-    
     # USER MANAGEMENT
     def create_user(self, username, email, password):
         """Create new user with hashed password"""
@@ -138,36 +81,40 @@ class Database:
         re-transmit the plaintext."""
         user_id = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
-        c = conn.cursor()
         try:
+            c = conn.cursor()
             c.execute('''
                 INSERT INTO users (id, username, email, password_hash)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             ''', (user_id, username, email, password_hash))
             conn.commit()
             return user_id
-        except sqlite3.IntegrityError:
+        except psycopg.errors.IntegrityError:
             return None
         finally:
-            conn.close()
-    
+            self.release_connection(conn)
+
     def get_user(self, username):
         """Get user by username"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM users WHERE username = ?', (username,))
-        user = c.fetchone()
-        conn.close()
-        return dict(user) if user else None
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM users WHERE username = %s', (username,))
+            user = c.fetchone()
+            return dict(user) if user else None
+        finally:
+            self.release_connection(conn)
 
     def get_user_by_id(self, user_id):
         """Get user by id"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM users WHERE id = ?', (user_id,))
-        user = c.fetchone()
-        conn.close()
-        return dict(user) if user else None
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+            user = c.fetchone()
+            return dict(user) if user else None
+        finally:
+            self.release_connection(conn)
 
     def verify_password(self, stored_hash, password):
         """Verify password against stored hash"""
@@ -177,90 +124,101 @@ class Database:
         """Hash and store a new password for a user"""
         password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute(
-            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            (password_hash, user_id),
-        )
-        conn.commit()
-        updated = c.rowcount > 0
-        conn.close()
-        return updated
+        try:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s',
+                (password_hash, user_id),
+            )
+            conn.commit()
+            return c.rowcount > 0
+        finally:
+            self.release_connection(conn)
 
     def delete_user(self, user_id):
         """Permanently delete a user and all their data.
 
-        SQLite foreign keys aren't enforced here (no PRAGMA foreign_keys=ON),
-        so child rows are deleted explicitly in dependency order rather than
-        relying on cascade.
-        """
+        Deleted in explicit dependency order rather than relying on
+        cascade, since the foreign keys here don't declare ON DELETE
+        CASCADE (matches the original SQLite behaviour, where FKs weren't
+        even enforced - here they are enforced, so this order matters more
+        than it used to, not less)."""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute(
-            'DELETE FROM messages WHERE conversation_id IN '
-            '(SELECT id FROM conversations WHERE user_id = ?)',
-            (user_id,),
-        )
-        c.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
-        c.execute('DELETE FROM api_usage WHERE user_id = ?', (user_id,))
-        c.execute('DELETE FROM personas WHERE user_id = ?', (user_id,))
-        c.execute('DELETE FROM users WHERE id = ?', (user_id,))
-        conn.commit()
-        deleted = c.rowcount > 0
-        conn.close()
-        return deleted
+        try:
+            c = conn.cursor()
+            c.execute(
+                'DELETE FROM messages WHERE conversation_id IN '
+                '(SELECT id FROM conversations WHERE user_id = %s)',
+                (user_id,),
+            )
+            c.execute('DELETE FROM conversations WHERE user_id = %s', (user_id,))
+            c.execute('DELETE FROM api_usage WHERE user_id = %s', (user_id,))
+            c.execute('DELETE FROM personas WHERE user_id = %s', (user_id,))
+            c.execute('DELETE FROM password_reset_tokens WHERE user_id = %s', (user_id,))
+            c.execute('DELETE FROM users WHERE id = %s', (user_id,))
+            conn.commit()
+            return c.rowcount > 0
+        finally:
+            self.release_connection(conn)
 
     def get_user_by_email(self, email):
         """Get user by email"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM users WHERE email = ?', (email,))
-        user = c.fetchone()
-        conn.close()
-        return dict(user) if user else None
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM users WHERE email = %s', (email,))
+            user = c.fetchone()
+            return dict(user) if user else None
+        finally:
+            self.release_connection(conn)
 
     # PASSWORD RESET
     def create_password_reset_token(self, user_id, ttl_minutes=60):
         """Generate a single-use reset token, invalidating any earlier
         unused tokens for this user first."""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute(
-            'UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0',
-            (user_id,),
-        )
-        token = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
-        c.execute(
-            'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)',
-            (token, user_id, expires_at.isoformat()),
-        )
-        conn.commit()
-        conn.close()
-        return token
+        try:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE password_reset_tokens SET used = TRUE WHERE user_id = %s AND used = FALSE',
+                (user_id,),
+            )
+            token = secrets.token_urlsafe(32)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            c.execute(
+                'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (%s, %s, %s)',
+                (token, user_id, expires_at),
+            )
+            conn.commit()
+            return token
+        finally:
+            self.release_connection(conn)
 
     def get_valid_reset_token(self, token):
         """Return the token row if it exists, is unused, and hasn't expired."""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM password_reset_tokens WHERE token = ?', (token,))
-        row = c.fetchone()
-        conn.close()
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM password_reset_tokens WHERE token = %s', (token,))
+            row = c.fetchone()
+        finally:
+            self.release_connection(conn)
         if not row:
             return None
         row = dict(row)
         if row['used']:
             return None
-        if datetime.fromisoformat(row['expires_at']) < datetime.utcnow():
+        if row['expires_at'] < datetime.now(timezone.utc):
             return None
         return row
 
     def mark_reset_token_used(self, token):
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('UPDATE password_reset_tokens SET used = 1 WHERE token = ?', (token,))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('UPDATE password_reset_tokens SET used = TRUE WHERE token = %s', (token,))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
 
     # SIGNUP OTP VERIFICATION
     MAX_OTP_ATTEMPTS = 5
@@ -271,24 +229,25 @@ class Database:
         any earlier pending attempt for the same email (e.g. user hit
         "resend code")."""
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute(
-            '''INSERT INTO pending_registrations
-               (email, username, password_hash, otp_code, attempts, expires_at)
-               VALUES (?, ?, ?, ?, 0, ?)
-               ON CONFLICT(email) DO UPDATE SET
-                   username = excluded.username,
-                   password_hash = excluded.password_hash,
-                   otp_code = excluded.otp_code,
-                   attempts = 0,
-                   created_at = CURRENT_TIMESTAMP,
-                   expires_at = excluded.expires_at''',
-            (email, username, password_hash, otp_code, expires_at.isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                '''INSERT INTO pending_registrations
+                   (email, username, password_hash, otp_code, attempts, expires_at)
+                   VALUES (%s, %s, %s, %s, 0, %s)
+                   ON CONFLICT (email) DO UPDATE SET
+                       username = excluded.username,
+                       password_hash = excluded.password_hash,
+                       otp_code = excluded.otp_code,
+                       attempts = 0,
+                       created_at = NOW(),
+                       expires_at = excluded.expires_at''',
+                (email, username, password_hash, otp_code, expires_at),
+            )
+            conn.commit()
+        finally:
+            self.release_connection(conn)
 
     def get_pending_registration(self, email):
         """Return the pending row if it exists and hasn't expired (expiry
@@ -296,117 +255,126 @@ class Database:
         caller so it can distinguish "wrong code" from "too many tries" for
         the user)."""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('SELECT * FROM pending_registrations WHERE email = ?', (email,))
-        row = c.fetchone()
-        conn.close()
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('SELECT * FROM pending_registrations WHERE email = %s', (email,))
+            row = c.fetchone()
+        finally:
+            self.release_connection(conn)
         if not row:
             return None
         row = dict(row)
-        if datetime.fromisoformat(row['expires_at']) < datetime.utcnow():
+        if row['expires_at'] < datetime.now(timezone.utc):
             return None
         return row
 
     def increment_otp_attempts(self, email):
         """Record a failed verification attempt, returning the new count."""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = ?', (email,))
-        conn.commit()
-        c.execute('SELECT attempts FROM pending_registrations WHERE email = ?', (email,))
-        row = c.fetchone()
-        conn.close()
-        return row['attempts'] if row else self.MAX_OTP_ATTEMPTS
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = %s', (email,))
+            conn.commit()
+            c.execute('SELECT attempts FROM pending_registrations WHERE email = %s', (email,))
+            row = c.fetchone()
+            return row['attempts'] if row else self.MAX_OTP_ATTEMPTS
+        finally:
+            self.release_connection(conn)
 
     def delete_pending_registration(self, email):
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('DELETE FROM pending_registrations WHERE email = ?', (email,))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('DELETE FROM pending_registrations WHERE email = %s', (email,))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
 
     # CONVERSATION MANAGEMENT
     def create_conversation(self, user_id, title, language='en'):
         """Create new conversation"""
         conv_id = hashlib.md5(f"{user_id}{datetime.now()}".encode()).hexdigest()
-        
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO conversations (id, user_id, title, language)
-            VALUES (?, ?, ?, ?)
-        ''', (conv_id, user_id, title, language))
-        conn.commit()
-        conn.close()
-        return conv_id
-    
+        try:
+            conn.execute('''
+                INSERT INTO conversations (id, user_id, title, language)
+                VALUES (%s, %s, %s, %s)
+            ''', (conv_id, user_id, title, language))
+            conn.commit()
+            return conv_id
+        finally:
+            self.release_connection(conn)
+
     def get_conversations(self, user_id, limit=50):
         """Get all conversations for user"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            SELECT * FROM conversations 
-            WHERE user_id = ? AND is_archived = 0
-            ORDER BY updated_at DESC
-            LIMIT ?
-        ''', (user_id, limit))
-        convs = [dict(row) for row in c.fetchall()]
-        conn.close()
-        return convs
-    
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('''
+                SELECT * FROM conversations
+                WHERE user_id = %s AND is_archived = FALSE
+                ORDER BY updated_at DESC
+                LIMIT %s
+            ''', (user_id, limit))
+            return [dict(row) for row in c.fetchall()]
+        finally:
+            self.release_connection(conn)
+
     def update_conversation_title(self, conv_id, title):
         """Update conversation title"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            UPDATE conversations 
-            SET title = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (title, conv_id))
-        conn.commit()
-        conn.close()
-    
+        try:
+            conn.execute('''
+                UPDATE conversations
+                SET title = %s, updated_at = NOW()
+                WHERE id = %s
+            ''', (title, conv_id))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
+
     # MESSAGE MANAGEMENT
     def add_message(self, conv_id, sender, text, language='en', tokens=0):
         """Add message to conversation"""
         msg_id = hashlib.md5(f"{conv_id}{datetime.now()}".encode()).hexdigest()
-        
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO messages (id, conversation_id, sender, text, language, tokens_used)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (msg_id, conv_id, sender, text, language, tokens))
-        
-        # Update conversation timestamp
-        c.execute('''
-            UPDATE conversations
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (conv_id,))
-        
-        conn.commit()
-        conn.close()
-        return msg_id
-    
+        try:
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO messages (id, conversation_id, sender, text, language, tokens_used)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (msg_id, conv_id, sender, text, language, tokens))
+
+            # Update conversation timestamp
+            c.execute('''
+                UPDATE conversations
+                SET updated_at = NOW()
+                WHERE id = %s
+            ''', (conv_id,))
+
+            conn.commit()
+            return msg_id
+        finally:
+            self.release_connection(conn)
+
     def get_messages(self, conv_id, limit=100):
         """Get messages from conversation"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            SELECT * FROM messages 
-            WHERE conversation_id = ?
-            ORDER BY timestamp ASC
-            LIMIT ?
-        ''', (conv_id, limit))
-        messages = [dict(row) for row in c.fetchall()]
-        conn.close()
-        return messages
-    
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('''
+                SELECT * FROM messages
+                WHERE conversation_id = %s
+                ORDER BY timestamp ASC
+                LIMIT %s
+            ''', (conv_id, limit))
+            return [dict(row) for row in c.fetchall()]
+        finally:
+            self.release_connection(conn)
+
     def get_conversation_history(self, conv_id, max_tokens=4000):
         """Get conversation history for context"""
         messages = self.get_messages(conv_id, limit=50)
-        
+
         history = []
         token_count = 0
         for msg in messages:
@@ -418,82 +386,88 @@ class Database:
                 'content': msg['text']
             })
             token_count += msg_tokens
-        
+
         return history
-    
+
     # ANALYTICS
     def log_api_usage(self, user_id, endpoint, tokens_used=0, cost=0):
         """Log API usage for analytics"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO api_usage (user_id, endpoint, tokens_used, cost)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, endpoint, tokens_used, cost))
-        conn.commit()
-        conn.close()
-    
+        try:
+            conn.execute('''
+                INSERT INTO api_usage (user_id, endpoint, tokens_used, cost)
+                VALUES (%s, %s, %s, %s)
+            ''', (user_id, endpoint, tokens_used, cost))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
+
     def get_user_stats(self, user_id):
         """Get user statistics"""
         conn = self.get_connection()
-        c = conn.cursor()
+        try:
+            c = conn.cursor(row_factory=dict_row)
 
-        # Total tokens
-        c.execute('''
-            SELECT SUM(tokens_used) as total_tokens FROM api_usage
-            WHERE user_id = ?
-        ''', (user_id,))
-        total_tokens = c.fetchone()['total_tokens'] or 0
+            # Total tokens
+            c.execute('''
+                SELECT SUM(tokens_used) as total_tokens FROM api_usage
+                WHERE user_id = %s
+            ''', (user_id,))
+            total_tokens = c.fetchone()['total_tokens'] or 0
 
-        # Total conversations
-        c.execute('''
-            SELECT COUNT(*) as count FROM conversations
-            WHERE user_id = ? AND is_archived = 0
-        ''', (user_id,))
-        total_conversations = c.fetchone()['count']
+            # Total conversations
+            c.execute('''
+                SELECT COUNT(*) as count FROM conversations
+                WHERE user_id = %s AND is_archived = FALSE
+            ''', (user_id,))
+            total_conversations = c.fetchone()['count']
 
-        conn.close()
-        return {
-            'total_tokens': total_tokens,
-            'total_conversations': total_conversations
-        }
+            return {
+                'total_tokens': total_tokens,
+                'total_conversations': total_conversations
+            }
+        finally:
+            self.release_connection(conn)
 
     # PERSONA MANAGEMENT
     def create_persona(self, user_id, name, system_prompt):
         """Create a new persona for a user"""
         persona_id = hashlib.md5(f"{user_id}{name}{datetime.now()}".encode()).hexdigest()
-
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO personas (id, user_id, name, system_prompt)
-            VALUES (?, ?, ?, ?)
-        ''', (persona_id, user_id, name, system_prompt))
-        conn.commit()
-        conn.close()
-        return persona_id
+        try:
+            conn.execute('''
+                INSERT INTO personas (id, user_id, name, system_prompt)
+                VALUES (%s, %s, %s, %s)
+            ''', (persona_id, user_id, name, system_prompt))
+            conn.commit()
+            return persona_id
+        finally:
+            self.release_connection(conn)
 
     def list_personas(self, user_id):
         """List all personas belonging to a user"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            SELECT * FROM personas WHERE user_id = ? ORDER BY created_at ASC
-        ''', (user_id,))
-        personas = [dict(row) for row in c.fetchall()]
-        conn.close()
-        return personas
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('''
+                SELECT * FROM personas WHERE user_id = %s ORDER BY created_at ASC
+            ''', (user_id,))
+            return [dict(row) for row in c.fetchall()]
+        finally:
+            self.release_connection(conn)
 
     def get_persona(self, persona_id, user_id):
         """Get a single persona, scoped to its owner"""
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            SELECT * FROM personas WHERE id = ? AND user_id = ?
-        ''', (persona_id, user_id))
-        persona = c.fetchone()
-        conn.close()
-        return dict(persona) if persona else None
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute('''
+                SELECT * FROM personas WHERE id = %s AND user_id = %s
+            ''', (persona_id, user_id))
+            persona = c.fetchone()
+            return dict(persona) if persona else None
+        finally:
+            self.release_connection(conn)
 
     def update_persona(self, persona_id, user_id, name, system_prompt):
         """Update a persona's name/system_prompt. Returns False if it doesn't belong to user_id."""
@@ -501,15 +475,16 @@ class Database:
             return False
 
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('''
-            UPDATE personas
-            SET name = ?, system_prompt = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND user_id = ?
-        ''', (name, system_prompt, persona_id, user_id))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute('''
+                UPDATE personas
+                SET name = %s, system_prompt = %s, updated_at = NOW()
+                WHERE id = %s AND user_id = %s
+            ''', (name, system_prompt, persona_id, user_id))
+            conn.commit()
+            return True
+        finally:
+            self.release_connection(conn)
 
     def delete_persona(self, persona_id, user_id):
         """Delete a persona. Returns False if it doesn't belong to user_id."""
@@ -517,11 +492,12 @@ class Database:
             return False
 
         conn = self.get_connection()
-        c = conn.cursor()
-        c.execute('DELETE FROM personas WHERE id = ? AND user_id = ?', (persona_id, user_id))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute('DELETE FROM personas WHERE id = %s AND user_id = %s', (persona_id, user_id))
+            conn.commit()
+            return True
+        finally:
+            self.release_connection(conn)
 
 # Global instance
 db = Database()

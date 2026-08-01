@@ -550,8 +550,13 @@ JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DAYS = int(os.getenv('JWT_EXPIRATION_DAYS', 7))
 
-# Database Configuration
-DATABASE_URL = 'sqlite:///data/chatbot.db'
+# Database Configuration - Postgres (Supabase). Use the Transaction Pooler
+# connection string (port 6543), not the direct connection - the direct
+# connection has a small connection limit that multiple gunicorn workers
+# each opening a pool will exhaust quickly. No SQLite fallback: the
+# previous SQLite-on-local-disk setup silently lost all data on every
+# Render deploy/restart, since the container filesystem isn't persistent.
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 DATABASE_ECHO = False
 
 # API Cost Tracking

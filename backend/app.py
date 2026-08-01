@@ -27,6 +27,7 @@ from services.llm import list_available_models
 from services import vision_service
 from auth import auth_service, require_auth
 from database import db
+from psycopg.rows import dict_row
 from chat_management_api import chat_management_bp
 from services import code_agent
 
@@ -830,7 +831,7 @@ def health_check():
     try:
         conn = db.get_connection()
         conn.execute('SELECT 1')
-        conn.close()
+        db.release_connection(conn)
         health_status['systems']['database'] = {'status': 'healthy'}
     except Exception as e:
         health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}
@@ -1063,22 +1064,26 @@ def get_shared_chat(token):
     """
     try:
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute(
-            'SELECT id, title, created_at FROM conversations WHERE share_token = ?',
-            (token,)
-        )
-        convo = c.fetchone()
-        if not convo:
-            conn.close()
-            return jsonify({'error': 'Shared chat not found'}), 404
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute(
+                'SELECT id, title, created_at FROM conversations WHERE share_token = %s',
+                (token,)
+            )
+            convo = c.fetchone()
+            if not convo:
+                return jsonify({'error': 'Shared chat not found'}), 404
 
-        c.execute(
-            'SELECT sender, text, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC, rowid ASC',
-            (convo['id'],)
-        )
-        messages = [dict(row) for row in c.fetchall()]
-        conn.close()
+            # No rowid tiebreaker (Postgres has no implicit rowid column
+            # the way SQLite does) - matches database.py's own
+            # get_messages(), which has only ever ordered by timestamp.
+            c.execute(
+                'SELECT sender, text, timestamp FROM messages WHERE conversation_id = %s ORDER BY timestamp ASC',
+                (convo['id'],)
+            )
+            messages = [dict(row) for row in c.fetchall()]
+        finally:
+            db.release_connection(conn)
 
         return jsonify({
             'status': 'success',
