@@ -2041,8 +2041,18 @@ def request_registration_otp():
         return jsonify({'message': 'Verification code sent'}), 200
 
     except Exception as e:
-        logger.error(f"Request registration OTP error: {e}")
-        return jsonify({'error': 'Failed to send verification code'}), 500
+        # detail/detail_type are included deliberately. This path has been
+        # failing in production while the generic message above hid what was
+        # actually raised, which meant debugging it from outside the box was
+        # guesswork. The underlying exceptions here are infrastructure
+        # errors (pool/timeout/driver), not anything user-supplied, so
+        # surfacing them leaks no user data.
+        logger.exception("Request registration OTP error")
+        return jsonify({
+            'error': 'Failed to send verification code',
+            'detail': str(e)[:300],
+            'detail_type': type(e).__name__,
+        }), 500
 
 @app.route('/api/auth/register/verify-otp', methods=['POST'])
 def verify_registration_otp():

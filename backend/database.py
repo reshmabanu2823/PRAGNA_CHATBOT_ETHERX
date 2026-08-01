@@ -106,10 +106,23 @@ class Database:
             conn.commit()
         # max_lifetime recycles connections well inside the window where a
         # pooler or LB would silently drop a long-lived one.
+        # Deliberately NO check= callback. It was added here to catch stale
+        # connections, but ConnectionPool.check_connection works by toggling
+        # conn.autocommit, which *raises* on a connection that still has a
+        # transaction open ("can't change 'autocommit' now: ... INTRANS" -
+        # confirmed directly). psycopg_pool treats every exception from the
+        # check as recoverable, so it returns that connection to the pool and
+        # retries in a loop; if the same connection keeps failing the check,
+        # the loop just spins until the pool timeout and the caller sees
+        # "couldn't get a connection" even though connections exist and the
+        # database is fine. That matches production exactly: size=3,
+        # available=0, errors=0, waiting far above what sync workers could
+        # even generate. Staleness is instead handled by the keepalives and
+        # max_lifetime/max_idle below - and a stale connection failing one
+        # query is much better than every request blocking on a retry loop.
         self._pool = ConnectionPool(
             config.DATABASE_URL, min_size=1, max_size=3, open=True,
-            kwargs=connect_kwargs, configure=_configure,
-            check=ConnectionPool.check_connection, timeout=10,
+            kwargs=connect_kwargs, configure=_configure, timeout=10,
             max_lifetime=300, max_idle=60,
         )
         self.init_db()
@@ -146,7 +159,15 @@ class Database:
             if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
                 conn.rollback()
         except Exception:
-            pass
+            # Rollback failed, so this connection can't be cleaned up and
+            # must not go back into the pool still dirty - a connection stuck
+            # mid-transaction breaks for every subsequent borrower, not just
+            # this request. Closing it makes putconn() discard and replace it
+            # instead, trading one reconnect for not wedging the pool.
+            try:
+                conn.close()
+            except Exception:
+                pass
         self._pool.putconn(conn)
 
     def init_db(self):
