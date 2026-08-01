@@ -44,11 +44,24 @@ class Database:
                 'DATABASE_URL is not set. Postgres (Supabase) is required - '
                 'there is no SQLite fallback (that mode silently lost all '
                 'data on every deploy). Set DATABASE_URL to a Supabase '
-                'connection string (Transaction Pooler, port 6543).'
+                'connection string (Session Pooler, port 5432).'
             )
         # min_size=1 keeps this cheap at idle; max_size covers a handful of
         # concurrent requests per gunicorn worker without needing to tune it.
-        self._pool = ConnectionPool(config.DATABASE_URL, min_size=1, max_size=10, open=True)
+        #
+        # check=ConnectionPool.check_connection pings a connection before
+        # handing it out - without this, a connection that went bad while
+        # sitting in the pool (network blip, the server killing an idle
+        # connection, etc.) gets handed to the next caller anyway, and
+        # a write against a truly-dead connection hangs rather than erroring
+        # fast, since the client is waiting on a TCP peer that will never
+        # respond. Observed in production: after a couple of failed writes,
+        # the pool ended up holding a broken connection that made every
+        # subsequent write hang until timeout instead of failing immediately.
+        self._pool = ConnectionPool(
+            config.DATABASE_URL, min_size=1, max_size=10, open=True,
+            check=ConnectionPool.check_connection,
+        )
         self.init_db()
 
     def get_connection(self):
