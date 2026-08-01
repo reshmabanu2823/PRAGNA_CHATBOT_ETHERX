@@ -176,17 +176,19 @@ class Database:
         the database itself being slow or unreachable."""
         try:
             pool = self._get_pool()
-            s = pool.get_stats()
-            return {
-                'size': s.get('pool_size'),
-                'available': s.get('pool_available'),
-                'waiting': s.get('requests_waiting'),
-                'max_size': pool.max_size,
-                'pid': os.getpid(),
-                'errors': s.get('connections_errors'),
-            }
+            # Return psycopg_pool's counters wholesale rather than a curated
+            # subset. The hand-picked fields turned out to omit precisely the
+            # ones that distinguish the candidate causes: connections_lost
+            # (server closed it under us), returns_bad (handed back
+            # unusable), connections_errors (couldn't be opened at all) and
+            # requests_errors. Debugging this blind has already cost several
+            # wrong theories, and the counters are cheap.
+            stats = dict(pool.get_stats())
+            stats['pid'] = os.getpid()
+            stats['max_size_cfg'] = pool.max_size
+            return stats
         except Exception as exc:
-            return {'error': str(exc)[:100]}
+            return {'error': str(exc)[:100], 'pid': os.getpid()}
 
     def release_connection(self, conn):
         """Return a connection to the pool. If a write failed partway
