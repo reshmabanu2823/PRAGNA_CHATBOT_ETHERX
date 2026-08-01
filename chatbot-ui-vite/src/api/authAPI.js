@@ -1,12 +1,34 @@
 import { API_BASE } from "./api";
 
 export const authAPI = {
-  // Register new user
+  // Register new user (legacy, no email verification - kept for anything
+  // still calling it directly; the sign-up UI uses the OTP flow below)
   async register(username, email, password) {
     const response = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, email, password })
+    });
+    return response.json();
+  },
+
+  // Step 1 of sign-up: validate details, email a 6-digit code. Account
+  // isn't created yet - that happens in verifyRegistrationOtp.
+  async requestRegistrationOtp(username, email, password) {
+    const response = await fetch(`${API_BASE}/api/auth/register/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password })
+    });
+    return response.json();
+  },
+
+  // Step 2 of sign-up: check the emailed code and actually create the account.
+  async verifyRegistrationOtp(email, code) {
+    const response = await fetch(`${API_BASE}/api/auth/register/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code })
     });
     return response.json();
   },

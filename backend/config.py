@@ -58,15 +58,20 @@ SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Pragna-1 A')
 # EmailJS (https://www.emailjs.com) - REST API transport, used instead of
 # SMTP when EMAILJS_SERVICE_ID is set. Needs, from the EmailJS dashboard:
 #   - Email Services -> your connected service -> EMAILJS_SERVICE_ID
-#   - Email Templates -> your template -> EMAILJS_TEMPLATE_ID (must accept
-#     to_email, subject, html_body, text_body as template variables - see
-#     services/email_service.py for the exact contract)
 #   - Account -> General -> EMAILJS_PUBLIC_KEY
 #   - Account -> API Keys -> EMAILJS_PRIVATE_KEY, AND toggle on "Allow
 #     non-browser requests using the SDK" - without that, EmailJS rejects
 #     server-to-server calls that don't carry a browser Origin header.
+#
+# Two different templates are used for two different emails - a signup OTP
+# code and a password-reset link - so there are two template IDs.
+# EMAILJS_TEMPLATE_ID is the fallback used if either specific one is unset
+# (fine if you're only using one of the two flows). See
+# services/email_service.py for the exact template_params contract.
 EMAILJS_SERVICE_ID = os.getenv('EMAILJS_SERVICE_ID', '')
 EMAILJS_TEMPLATE_ID = os.getenv('EMAILJS_TEMPLATE_ID', '')
+EMAILJS_TEMPLATE_ID_OTP = os.getenv('EMAILJS_TEMPLATE_ID_OTP', '') or EMAILJS_TEMPLATE_ID
+EMAILJS_TEMPLATE_ID_RESET = os.getenv('EMAILJS_TEMPLATE_ID_RESET', '') or EMAILJS_TEMPLATE_ID
 EMAILJS_PUBLIC_KEY = os.getenv('EMAILJS_PUBLIC_KEY', '')
 EMAILJS_PRIVATE_KEY = os.getenv('EMAILJS_PRIVATE_KEY', '')
 

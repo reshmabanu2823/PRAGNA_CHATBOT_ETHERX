@@ -105,15 +105,38 @@ class Database:
             )
         ''')
 
+        # Signups awaiting OTP verification. password_hash is stored (never
+        # the plaintext password) so the row can sit here for a few minutes
+        # without holding a secret in a more sensitive form than the users
+        # table itself does. One row per email - a new request-otp call
+        # overwrites the previous pending attempt for that address rather
+        # than accumulating rows.
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pending_registrations (
+                email TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                otp_code TEXT NOT NULL,
+                attempts INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            )
+        ''')
+
         conn.commit()
         conn.close()
     
     # USER MANAGEMENT
     def create_user(self, username, email, password):
         """Create new user with hashed password"""
-        user_id = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        
+        return self._insert_user(username, email, password_hash)
+
+    def _insert_user(self, username, email, password_hash):
+        """Shared by create_user and OTP-verified signup - takes an
+        already-hashed password so the OTP path never has to re-derive or
+        re-transmit the plaintext."""
+        user_id = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
         c = conn.cursor()
         try:
@@ -236,6 +259,69 @@ class Database:
         conn = self.get_connection()
         c = conn.cursor()
         c.execute('UPDATE password_reset_tokens SET used = 1 WHERE token = ?', (token,))
+        conn.commit()
+        conn.close()
+
+    # SIGNUP OTP VERIFICATION
+    MAX_OTP_ATTEMPTS = 5
+
+    def create_pending_registration(self, username, email, password, otp_code, ttl_minutes=10):
+        """Stage a signup behind an OTP code. Password is hashed immediately -
+        this table never holds a plaintext password, even briefly. Replaces
+        any earlier pending attempt for the same email (e.g. user hit
+        "resend code")."""
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute(
+            '''INSERT INTO pending_registrations
+               (email, username, password_hash, otp_code, attempts, expires_at)
+               VALUES (?, ?, ?, ?, 0, ?)
+               ON CONFLICT(email) DO UPDATE SET
+                   username = excluded.username,
+                   password_hash = excluded.password_hash,
+                   otp_code = excluded.otp_code,
+                   attempts = 0,
+                   created_at = CURRENT_TIMESTAMP,
+                   expires_at = excluded.expires_at''',
+            (email, username, password_hash, otp_code, expires_at.isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_pending_registration(self, email):
+        """Return the pending row if it exists and hasn't expired (expiry
+        alone - attempt-count exhaustion is checked separately by the
+        caller so it can distinguish "wrong code" from "too many tries" for
+        the user)."""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('SELECT * FROM pending_registrations WHERE email = ?', (email,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return None
+        row = dict(row)
+        if datetime.fromisoformat(row['expires_at']) < datetime.utcnow():
+            return None
+        return row
+
+    def increment_otp_attempts(self, email):
+        """Record a failed verification attempt, returning the new count."""
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = ?', (email,))
+        conn.commit()
+        c.execute('SELECT attempts FROM pending_registrations WHERE email = ?', (email,))
+        row = c.fetchone()
+        conn.close()
+        return row['attempts'] if row else self.MAX_OTP_ATTEMPTS
+
+    def delete_pending_registration(self, email):
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('DELETE FROM pending_registrations WHERE email = ?', (email,))
         conn.commit()
         conn.close()
 

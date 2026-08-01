@@ -6,8 +6,9 @@ full credential list and the exact dashboard steps, including the
 Otherwise this falls back to the SMTP path (SMTP_* in config.py), so an
 existing SMTP setup keeps working with no config changes.
 
-Both paths share the same send_email(to, subject, html, text) contract,
-and send_password_reset_email() doesn't need to know which one is active.
+Both paths share the same send_email(to, subject, html, text) contract, and
+callers like send_password_reset_email()/send_otp_email() don't need to
+know which one is active.
 
 Requires SMTP_USERNAME + SMTP_PASSWORD for the SMTP path, or
 EMAILJS_SERVICE_ID/TEMPLATE_ID/PUBLIC_KEY for the EmailJS path. If neither
@@ -48,28 +49,37 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _send_via_emailjs(to: str, subject: str, html: str, text: str) -> bool:
+def _send_via_emailjs(to: str, subject: str, html: str, text: str, template_id: str, extra_params: dict = None) -> bool:
     """POST to EmailJS's send endpoint.
 
-    template_params carries to_email/subject/html_body/text_body - the
-    EmailJS template referenced by EMAILJS_TEMPLATE_ID must declare a "To
-    Email" field of {{to_email}} in its settings, and its body should render
-    {{{html_body}}} (triple braces = unescaped HTML in EmailJS's Handlebars-
-    style templating; double braces would HTML-escape our markup into
-    visible tags). That keeps the actual email design owned by this file,
-    same as the SMTP path, rather than needing to be rebuilt in EmailJS's
-    template editor.
+    EmailJS has no fixed variable-naming convention - it's whatever the
+    template author typed into the template editor - and every template
+    we've hit so far (a pre-built OTP template, EmailJS's own "Password
+    Reset" starter) has used different names for the same two things: the
+    recipient and the link. Rather than force the template to match our
+    naming (or vice versa) every time a template changes, we send both
+    common spellings for each: to_email/email for the recipient,
+    reset_link/link for the link. Costs nothing - a template only reads the
+    variables it references and ignores the rest - and means a stock
+    EmailJS template mostly works with zero edits.
     """
+    template_params = {
+        "to_email": to,
+        "email": to,
+        "subject": subject,
+        "html_body": html,
+        "text_body": text,
+    }
+    if extra_params:
+        template_params.update(extra_params)
+        if "reset_link" in extra_params:
+            template_params["link"] = extra_params["reset_link"]
+
     payload = {
         "service_id": config.EMAILJS_SERVICE_ID,
-        "template_id": config.EMAILJS_TEMPLATE_ID,
+        "template_id": template_id,
         "user_id": config.EMAILJS_PUBLIC_KEY,
-        "template_params": {
-            "to_email": to,
-            "subject": subject,
-            "html_body": html,
-            "text_body": text,
-        },
+        "template_params": template_params,
     }
     if config.EMAILJS_PRIVATE_KEY:
         payload["accessToken"] = config.EMAILJS_PRIVATE_KEY
@@ -135,18 +145,29 @@ def _send_via_smtp(to: str, subject: str, html: str, text: str) -> bool:
         return False
 
 
-def send_email(to: str, subject: str, html: str, text: str = None) -> bool:
+def send_email(
+    to: str, subject: str, html: str, text: str = None,
+    extra_params: dict = None, emailjs_template_id: str = None,
+) -> bool:
     """Send a transactional email. Returns True on success, False otherwise.
 
-    Routes to EmailJS if configured, otherwise SMTP. Always sends a
-    text/plain alternative alongside the HTML - an HTML-only message is one
-    of the more heavily-weighted signals in spam scoring (SpamAssassin's
+    Routes to EmailJS if configured, otherwise SMTP (extra_params and
+    emailjs_template_id are EmailJS-only - the SMTP path ignores them).
+    emailjs_template_id lets different email types use different EmailJS
+    templates (see EMAILJS_TEMPLATE_ID_OTP/_RESET in config.py); it defaults
+    to EMAILJS_TEMPLATE_ID when not given. Always sends a text/plain
+    alternative alongside the HTML - an HTML-only message is one of the
+    more heavily-weighted signals in spam scoring (SpamAssassin's
     MIME_HTML_ONLY rule and similar).
     """
     text = text or _html_to_text(html)
 
     if config.EMAILJS_SERVICE_ID:
-        return _send_via_emailjs(to, subject, html, text)
+        return _send_via_emailjs(
+            to, subject, html, text,
+            template_id=emailjs_template_id or config.EMAILJS_TEMPLATE_ID,
+            extra_params=extra_params,
+        )
 
     if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
         logger.warning(
@@ -188,4 +209,41 @@ def send_password_reset_email(to: str, reset_url: str) -> bool:
         f"{reset_url}\n\n"
         "If you didn't request this, you can safely ignore this email - your password won't be changed."
     )
-    return send_email(to, "Reset your Pragna-1 A password", html, text=text)
+    return send_email(
+        to, "Reset your Pragna-1 A password", html, text=text,
+        extra_params={"reset_link": reset_url},
+        emailjs_template_id=config.EMAILJS_TEMPLATE_ID_RESET,
+    )
+
+
+def send_otp_email(to: str, code: str, ttl_minutes: int = 10) -> bool:
+    """Send a signup-verification OTP code.
+
+    Sends passcode/time in addition to the standard alias set, matching the
+    variable names EmailJS's own "One-Time Password" starter template uses
+    ({{passcode}}, {{time}}) - see the module docstring on variable-naming.
+    """
+    html = f"""
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2 style="color: #1a1a1a;">Verify your Pragna-1 A account</h2>
+      <p style="color: #444; line-height: 1.6;">
+        Use the code below to finish creating your account. It expires in {ttl_minutes} minutes.
+      </p>
+      <p style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #d4af37; margin: 28px 0;">
+        {code}
+      </p>
+      <p style="color: #888; font-size: 13px; line-height: 1.6;">
+        If you didn't request this, you can safely ignore this email.
+      </p>
+    </div>
+    """
+    text = (
+        f"Verify your Pragna-1 A account\n\n"
+        f"Your verification code is: {code}\n\n"
+        f"It expires in {ttl_minutes} minutes. If you didn't request this, ignore this email."
+    )
+    return send_email(
+        to, "Your Pragna-1 A verification code", html, text=text,
+        extra_params={"passcode": code, "time": f"{ttl_minutes} minutes"},
+        emailjs_template_id=config.EMAILJS_TEMPLATE_ID_OTP,
+    )

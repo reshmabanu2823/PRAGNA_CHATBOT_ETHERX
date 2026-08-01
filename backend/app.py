@@ -541,6 +541,8 @@ PUBLIC_ENDPOINTS = [
     '/api/summarize',
     '/api/auth/login',
     '/api/auth/register',
+    '/api/auth/register/request-otp',
+    '/api/auth/register/verify-otp',
 ]
 
 @app.before_request
@@ -2000,6 +2002,54 @@ def register():
     except Exception as e:
         logger.error(f"Registration error: {e}")
         return jsonify({'error': 'Registration failed'}), 500
+
+@app.route('/api/auth/register/request-otp', methods=['POST'])
+def request_registration_otp():
+    """Validate a signup attempt and email a 6-digit verification code.
+    The account isn't created until verify-otp confirms the code."""
+    try:
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+
+        if not username or not email or not password:
+            return jsonify({'error': 'All fields required'}), 400
+
+        error = auth_service.request_registration_otp(username, email, password)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({'message': 'Verification code sent'}), 200
+
+    except Exception as e:
+        logger.error(f"Request registration OTP error: {e}")
+        return jsonify({'error': 'Failed to send verification code'}), 500
+
+@app.route('/api/auth/register/verify-otp', methods=['POST'])
+def verify_registration_otp():
+    """Complete registration by checking the emailed code."""
+    try:
+        data = request.json or {}
+        email = data.get('email', '').strip()
+        code = data.get('code', '').strip()
+
+        if not email or not code:
+            return jsonify({'error': 'email and code are required'}), 400
+
+        user_id, token, error = auth_service.verify_registration_otp(email, code)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({
+            'user_id': user_id,
+            'token': token,
+            'message': 'Registration successful'
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Verify registration OTP error: {e}")
+        return jsonify({'error': 'Verification failed'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
