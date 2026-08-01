@@ -829,9 +829,17 @@ def health_check():
     
     # Check 3: Database
     try:
+        # try/finally is load-bearing, not style: without it a failing
+        # SELECT 1 skips release_connection() and leaks that connection out
+        # of the pool permanently. This is the most-hit endpoint (Render's
+        # own monitoring polls it), so a transient DB blip used to leak one
+        # connection per poll until the pool hit max_size and every request
+        # in the app started blocking for the full pool timeout instead.
         conn = db.get_connection()
-        conn.execute('SELECT 1')
-        db.release_connection(conn)
+        try:
+            conn.execute('SELECT 1')
+        finally:
+            db.release_connection(conn)
         health_status['systems']['database'] = {'status': 'healthy'}
     except Exception as e:
         health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}

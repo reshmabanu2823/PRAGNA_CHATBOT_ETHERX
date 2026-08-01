@@ -58,9 +58,13 @@ class Database:
         # respond. Observed in production: after a couple of failed writes,
         # the pool ended up holding a broken connection that made every
         # subsequent write hang until timeout instead of failing immediately.
+        # timeout=10 (default is 30) so that if the pool ever does run dry,
+        # callers fail fast instead of every request in the app blocking for
+        # half a minute first - a 30s wait behind an exhausted pool reads to
+        # users as "the whole site is hung", which is worse than an error.
         self._pool = ConnectionPool(
             config.DATABASE_URL, min_size=1, max_size=10, open=True,
-            check=ConnectionPool.check_connection,
+            check=ConnectionPool.check_connection, timeout=10,
         )
         self.init_db()
 
