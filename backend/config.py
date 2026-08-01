@@ -550,12 +550,17 @@ JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DAYS = int(os.getenv('JWT_EXPIRATION_DAYS', 7))
 
-# Database Configuration - Postgres (Supabase). Use the Transaction Pooler
-# connection string (port 6543), not the direct connection - the direct
-# connection has a small connection limit that multiple gunicorn workers
-# each opening a pool will exhaust quickly. No SQLite fallback: the
-# previous SQLite-on-local-disk setup silently lost all data on every
-# Render deploy/restart, since the container filesystem isn't persistent.
+# Database Configuration - Postgres (Supabase). Use the Session Pooler
+# connection string (port 5432), NOT the Transaction Pooler (port 6543) and
+# NOT the direct connection. Transaction mode isn't meant to sit under an
+# external connection pool (database.py keeps its own psycopg_pool) -
+# that combination surfaced in production as intermittent
+# "SSL SYSCALL error: EOF detected" once a pooled connection sat idle long
+# enough for PgBouncer to recycle the backend connection under it. The
+# direct connection has too small a limit for multiple gunicorn workers
+# each opening a pool. No SQLite fallback: the previous SQLite-on-local-
+# disk setup silently lost all data on every Render deploy/restart, since
+# the container filesystem isn't persistent.
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 DATABASE_ECHO = False
 

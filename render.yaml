@@ -68,12 +68,19 @@ services:
         sync: false # REQUIRED - the app will not start without this
                      # (database.py raises at boot if unset, deliberately -
                      # see its module docstring). Supabase Postgres
-                     # connection string, Transaction Pooler mode (port
-                     # 6543), from Supabase dashboard -> Connect. Using the
-                     # direct connection (port 5432) instead will exhaust
-                     # Supabase's small direct-connection limit once this
-                     # service has more than a couple of gunicorn workers
-                     # each holding a pool open.
+                     # connection string, SESSION POOLER mode specifically -
+                     # from Supabase dashboard -> Connect, host is
+                     # <region>.pooler.supabase.com, port 5432, username
+                     # postgres.<project-ref>. Do NOT use Transaction Pooler
+                     # mode (also port 6543 on the same host) - that
+                     # combination with this app's own connection pool
+                     # caused intermittent "SSL SYSCALL error: EOF detected"
+                     # in production once a pooled connection sat idle long
+                     # enough for PgBouncer to recycle it underneath us. Do
+                     # NOT use the direct connection (host db.<ref>.supabase.co,
+                     # also port 5432) either - its connection limit is too
+                     # small once this service has more than a couple of
+                     # gunicorn workers each holding a pool open.
       - key: CORS_ALLOWED_ORIGINS
         sync: false # Set to the etherx-frontend URL once known (e.g.
                      # https://etherx-frontend.onrender.com). Defaults to "*"

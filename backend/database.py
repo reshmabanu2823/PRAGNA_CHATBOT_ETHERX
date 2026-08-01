@@ -15,6 +15,16 @@ possible change (release_connection() instead of close(), %s instead of
 ?, plus a dict_row cursor wherever the code reads columns by name). A
 context-manager-only get_connection() would have been cleaner in
 isolation, but broken every one of those call sites.
+
+DATABASE_URL must point at Supabase's Session pooler (port 5432), not the
+Transaction pooler (port 6543) - Supabase's own docs say Transaction mode
+isn't meant to sit under an external connection pool like this one, and in
+production that combination surfaced as intermittent
+"SSL SYSCALL error: EOF detected" / "decryption failed" errors once a
+pooled connection had sat idle for a while and PgBouncer recycled the
+underlying backend connection out from under it. Session mode dedicates a
+real backend connection for the lifetime of ours, which is what a
+persistent client-side pool actually needs.
 """
 import hashlib
 import secrets
