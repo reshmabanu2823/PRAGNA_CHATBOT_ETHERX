@@ -27,7 +27,9 @@ real backend connection for the lifetime of ours, which is what a
 persistent client-side pool actually needs.
 """
 import hashlib
+import os
 import secrets
+import threading
 import bcrypt
 from datetime import datetime, timedelta, timezone
 
@@ -120,19 +122,52 @@ class Database:
         # even generate. Staleness is instead handled by the keepalives and
         # max_lifetime/max_idle below - and a stale connection failing one
         # query is much better than every request blocking on a retry loop.
-        self._pool = ConnectionPool(
-            config.DATABASE_URL, min_size=1, max_size=3, open=True,
-            kwargs=connect_kwargs, configure=_configure, timeout=10,
-            max_lifetime=300, max_idle=60,
-        )
-        self.init_db()
+        # Fork-safety. Nothing connects at import time. gunicorn forks its
+        # workers *after* importing app.py - and therefore after this
+        # module's `db = Database()` has already run - so a pool opened here
+        # would hand the very same live SSL socket to every child. Two
+        # processes then interleave writes on one TLS stream and the server
+        # rejects the garbled records with
+        # "SSL error: decryption failed or bad record mac", which is exactly
+        # what production returned. Those corrupted connections never come
+        # back to the pool, so it bleeds down to empty and every subsequent
+        # request fails with PoolTimeout instead - the symptom that masked
+        # the real cause for so long.
+        #
+        # So the pool is built on first use and tagged with the pid that
+        # built it. A child that inherited a parent's pool sees the mismatch
+        # and builds its own. The inherited object is abandoned rather than
+        # closed: closing it would tear down sockets the parent still uses.
+        self._connect_kwargs = connect_kwargs
+        self._configure_cb = _configure
+        self._pool = None
+        self._pool_pid = None
+        self._pool_lock = threading.Lock()
+
+    def _get_pool(self):
+        """Return this process's pool, creating it if this is the first use
+        here or if we've been forked since it was created."""
+        pool = self._pool
+        if pool is not None and self._pool_pid == os.getpid():
+            return pool
+        with self._pool_lock:
+            pid = os.getpid()
+            if self._pool is not None and self._pool_pid == pid:
+                return self._pool
+            self._pool = ConnectionPool(
+                config.DATABASE_URL, min_size=1, max_size=3, open=True,
+                kwargs=self._connect_kwargs, configure=self._configure_cb,
+                timeout=10, max_lifetime=300, max_idle=60,
+            )
+            self._pool_pid = pid
+            return self._pool
 
     def get_connection(self):
         """Check a connection out of the pool. Caller must call
         release_connection() when done (finally block), and must call
         conn.commit() explicitly after writes - autocommit is off, matching
         the old sqlite3 default."""
-        return self._pool.getconn()
+        return self._get_pool().getconn()
 
     def get_pool_stats(self):
         """Pool counters for /api/health. Exposed because connection-pool
@@ -140,12 +175,14 @@ class Database:
         surface only as generic timeouts, which is indistinguishable from
         the database itself being slow or unreachable."""
         try:
-            s = self._pool.get_stats()
+            pool = self._get_pool()
+            s = pool.get_stats()
             return {
                 'size': s.get('pool_size'),
                 'available': s.get('pool_available'),
                 'waiting': s.get('requests_waiting'),
-                'max_size': self._pool.max_size,
+                'max_size': pool.max_size,
+                'pid': os.getpid(),
                 'errors': s.get('connections_errors'),
             }
         except Exception as exc:
@@ -168,7 +205,7 @@ class Database:
                 conn.close()
             except Exception:
                 pass
-        self._pool.putconn(conn)
+        self._get_pool().putconn(conn)
 
     def init_db(self):
         """Verify connectivity. Schema is managed via Supabase migrations,
