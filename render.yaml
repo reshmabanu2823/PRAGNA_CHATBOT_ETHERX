@@ -106,10 +106,23 @@ services:
                      # instead of SMTP (SMTP_* above is then unused). From
                      # the EmailJS dashboard: Email Services -> your service.
       - key: EMAILJS_TEMPLATE_ID
-        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. The template
-                     # must accept to_email/subject/html_body/text_body
-                     # variables - see services/email_service.py for the
-                     # exact contract.
+        sync: false # Fallback template, used only if EMAILJS_TEMPLATE_ID_OTP
+                     # or _RESET below is left unset. Setting only this one
+                     # means BOTH email types silently use the same template
+                     # (e.g. signup OTPs going out as "Reset your password"
+                     # emails with an empty link) - set the two below
+                     # explicitly instead, this exists mainly as a fallback.
+      - key: EMAILJS_TEMPLATE_ID_OTP
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Template for the
+                     # signup verification code - must accept
+                     # to_email/passcode/time (see
+                     # services/email_service.py send_otp_email for the full
+                     # variable contract).
+      - key: EMAILJS_TEMPLATE_ID_RESET
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Template for the
+                     # password-reset link - must accept to_email/reset_link
+                     # (see services/email_service.py send_password_reset_email
+                     # for the full variable contract).
       - key: EMAILJS_PUBLIC_KEY
         sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Account ->
                      # General in the EmailJS dashboard.

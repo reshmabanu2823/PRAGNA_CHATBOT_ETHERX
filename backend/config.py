@@ -70,8 +70,21 @@ SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Pragna-1 A')
 # services/email_service.py for the exact template_params contract.
 EMAILJS_SERVICE_ID = os.getenv('EMAILJS_SERVICE_ID', '')
 EMAILJS_TEMPLATE_ID = os.getenv('EMAILJS_TEMPLATE_ID', '')
-EMAILJS_TEMPLATE_ID_OTP = os.getenv('EMAILJS_TEMPLATE_ID_OTP', '') or EMAILJS_TEMPLATE_ID
-EMAILJS_TEMPLATE_ID_RESET = os.getenv('EMAILJS_TEMPLATE_ID_RESET', '') or EMAILJS_TEMPLATE_ID
+_emailjs_template_id_otp_env = os.getenv('EMAILJS_TEMPLATE_ID_OTP', '')
+_emailjs_template_id_reset_env = os.getenv('EMAILJS_TEMPLATE_ID_RESET', '')
+EMAILJS_TEMPLATE_ID_OTP = _emailjs_template_id_otp_env or EMAILJS_TEMPLATE_ID
+EMAILJS_TEMPLATE_ID_RESET = _emailjs_template_id_reset_env or EMAILJS_TEMPLATE_ID
+
+if EMAILJS_SERVICE_ID and not (_emailjs_template_id_otp_env and _emailjs_template_id_reset_env):
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        'EMAILJS_TEMPLATE_ID_OTP and/or EMAILJS_TEMPLATE_ID_RESET is unset - '
+        'both are falling back to the same EMAILJS_TEMPLATE_ID (%r), so signup '
+        'OTPs and password-reset links will use whichever ONE template that '
+        'is, with the wrong variables silently rendering blank. Set both '
+        'explicitly to their own template IDs.', EMAILJS_TEMPLATE_ID
+    )
+
 EMAILJS_PUBLIC_KEY = os.getenv('EMAILJS_PUBLIC_KEY', '')
 EMAILJS_PRIVATE_KEY = os.getenv('EMAILJS_PRIVATE_KEY', '')
 
