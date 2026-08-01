@@ -58,12 +58,22 @@ class Database:
         # respond. Observed in production: after a couple of failed writes,
         # the pool ended up holding a broken connection that made every
         # subsequent write hang until timeout instead of failing immediately.
-        # timeout=10 (default is 30) so that if the pool ever does run dry,
+        # max_size is deliberately small. Supabase's pooler allows a limited
+        # number of *client* connections, and gunicorn runs multiple workers
+        # that each build their own independent pool - so the number that
+        # matters upstream is (workers x max_size), not max_size. At the
+        # previous max_size=10 that was 2x10=20, over the budget, and once
+        # it was hit the pooler stopped accepting new connections, which
+        # surfaces here as "couldn't get a connection" rather than as any
+        # kind of explicit limit error. 2x3=6 leaves plenty of headroom, and
+        # is still ample for this app's traffic.
+        #
+        # timeout=10 (default 30) so that if the pool ever does run dry,
         # callers fail fast instead of every request in the app blocking for
         # half a minute first - a 30s wait behind an exhausted pool reads to
         # users as "the whole site is hung", which is worse than an error.
         self._pool = ConnectionPool(
-            config.DATABASE_URL, min_size=1, max_size=10, open=True,
+            config.DATABASE_URL, min_size=1, max_size=3, open=True,
             check=ConnectionPool.check_connection, timeout=10,
         )
         self.init_db()
@@ -74,6 +84,23 @@ class Database:
         conn.commit() explicitly after writes - autocommit is off, matching
         the old sqlite3 default."""
         return self._pool.getconn()
+
+    def get_pool_stats(self):
+        """Pool counters for /api/health. Exposed because connection-pool
+        problems are otherwise invisible from outside the process - they
+        surface only as generic timeouts, which is indistinguishable from
+        the database itself being slow or unreachable."""
+        try:
+            s = self._pool.get_stats()
+            return {
+                'size': s.get('pool_size'),
+                'available': s.get('pool_available'),
+                'waiting': s.get('requests_waiting'),
+                'max_size': self._pool.max_size,
+                'errors': s.get('connections_errors'),
+            }
+        except Exception as exc:
+            return {'error': str(exc)[:100]}
 
     def release_connection(self, conn):
         """Return a connection to the pool. If a write failed partway

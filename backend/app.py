@@ -840,9 +840,14 @@ def health_check():
             conn.execute('SELECT 1')
         finally:
             db.release_connection(conn)
-        health_status['systems']['database'] = {'status': 'healthy'}
+        health_status['systems']['database'] = {'status': 'healthy', 'pool': db.get_pool_stats()}
     except Exception as e:
-        health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}
+        # Include pool stats on failure too - "couldn't get a connection"
+        # alone can't distinguish an exhausted pool from an unreachable
+        # database, and those need completely different fixes.
+        health_status['systems']['database'] = {
+            'status': 'error', 'error': str(e)[:100], 'pool': db.get_pool_stats(),
+        }
         health_status['errors'].append(f'❌ Database error: {str(e)[:100]}')
     
     # Check 4: Cache
