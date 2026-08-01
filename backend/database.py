@@ -72,9 +72,45 @@ class Database:
         # callers fail fast instead of every request in the app blocking for
         # half a minute first - a 30s wait behind an exhausted pool reads to
         # users as "the whole site is hung", which is worse than an error.
+        # THE timeouts below are what actually keep the pool alive, and are
+        # not optional tuning. A Postgres socket has no timeout by default:
+        # if the peer dies without sending FIN/RST (pooler recycles it, NAT
+        # or LB drops the flow, transient partition), the next query on that
+        # connection blocks *forever*. That thread is stuck inside the `try`,
+        # so the `finally: release_connection()` never runs and the
+        # connection is gone from the pool permanently. Repeat max_size times
+        # and the pool is dead with no errors logged and no self-recovery -
+        # which is exactly what production showed: available=0, size=3,
+        # waiting climbing, errors=None, staying that way while fully idle.
+        #
+        #   connect_timeout - bounds establishing a new connection
+        #   keepalives_*    - makes the kernel probe an idle peer and fail
+        #                     the socket if it's gone, instead of waiting
+        #                     forever for a reply that will never come
+        #   statement_timeout - server-side ceiling so a single query can
+        #                     never pin a pooled connection indefinitely
+        connect_kwargs = {
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 3,
+        }
+
+        def _configure(conn):
+            # statement_timeout has to be SET here rather than passed as a
+            # libpq `options` startup parameter: Supabase's pooler strips
+            # that, silently leaving the server default (verified - it stayed
+            # at 2min). Applied per new connection by the pool.
+            conn.execute("SET statement_timeout = '15s'")
+            conn.commit()
+        # max_lifetime recycles connections well inside the window where a
+        # pooler or LB would silently drop a long-lived one.
         self._pool = ConnectionPool(
             config.DATABASE_URL, min_size=1, max_size=3, open=True,
+            kwargs=connect_kwargs, configure=_configure,
             check=ConnectionPool.check_connection, timeout=10,
+            max_lifetime=300, max_idle=60,
         )
         self.init_db()
 
