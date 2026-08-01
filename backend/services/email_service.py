@@ -1,20 +1,27 @@
-"""Transactional email over SMTP.
+"""Transactional email - EmailJS REST API, falling back to SMTP.
 
-Provider-agnostic - see the SMTP_* block in config.py for host/port/
-credential settings and a table of common providers. Switching from Gmail
-to Brevo/SendGrid/Mailgun is an environment change, not a code change.
+EmailJS is used whenever EMAILJS_SERVICE_ID is set (see config.py for the
+full credential list and the exact dashboard steps, including the
+"Allow non-browser requests" toggle that server-to-server calls need).
+Otherwise this falls back to the SMTP path (SMTP_* in config.py), so an
+existing SMTP setup keeps working with no config changes.
 
-Requires SMTP_USERNAME + SMTP_PASSWORD. If either is unset, send_email
-logs a warning and returns False instead of raising - callers should treat
-email delivery as best-effort and never let it block the underlying action
-(e.g. password reset token creation must still succeed even if the email
-fails to send).
+Both paths share the same send_email(to, subject, html, text) contract,
+and send_password_reset_email() doesn't need to know which one is active.
+
+Requires SMTP_USERNAME + SMTP_PASSWORD for the SMTP path, or
+EMAILJS_SERVICE_ID/TEMPLATE_ID/PUBLIC_KEY for the EmailJS path. If neither
+is configured, send_email logs a warning and returns False instead of
+raising - callers should treat email delivery as best-effort and never let
+it block the underlying action (e.g. password reset token creation must
+still succeed even if the email fails to send).
 
 A note on inbox placement: authenticating as a personal mailbox (Gmail
 with an App Password) sends to any recipient with no domain verification,
 but the brand in the From display name has no DKIM relationship with the
-sending domain, so filters reasonably treat it as suspicious. A provider
-with a verified sender or verified domain signs the mail properly and is
+sending domain, so filters reasonably treat it as suspicious. EmailJS
+routes through its connected service's own sending infrastructure, which
+is generally a step up; a provider with a verified sender/domain is still
 the real fix for spam-foldering.
 """
 import logging
@@ -24,9 +31,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 
+import requests
+
 import config
 
 logger = logging.getLogger(__name__)
+
+EMAILJS_API_URL = "https://api.emailjs.com/api/v1.0/email/send"
 
 
 def _html_to_text(html: str) -> str:
@@ -37,19 +48,45 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def send_email(to: str, subject: str, html: str, text: str = None) -> bool:
-    """Send a transactional email. Returns True on success, False otherwise.
+def _send_via_emailjs(to: str, subject: str, html: str, text: str) -> bool:
+    """POST to EmailJS's send endpoint.
 
-    Always attaches a text/plain part alongside the HTML - an HTML-only
-    message is one of the more heavily-weighted signals in spam scoring
-    (SpamAssassin's MIME_HTML_ONLY rule and similar), which matters a lot
-    more here than it did on Resend since this is unauthenticated personal-
-    account mail rather than a purpose-built sending domain.
+    template_params carries to_email/subject/html_body/text_body - the
+    EmailJS template referenced by EMAILJS_TEMPLATE_ID must declare a "To
+    Email" field of {{to_email}} in its settings, and its body should render
+    {{{html_body}}} (triple braces = unescaped HTML in EmailJS's Handlebars-
+    style templating; double braces would HTML-escape our markup into
+    visible tags). That keeps the actual email design owned by this file,
+    same as the SMTP path, rather than needing to be rebuilt in EmailJS's
+    template editor.
     """
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        logger.warning("SMTP_USERNAME/SMTP_PASSWORD not set - skipping email send to %s", to)
+    payload = {
+        "service_id": config.EMAILJS_SERVICE_ID,
+        "template_id": config.EMAILJS_TEMPLATE_ID,
+        "user_id": config.EMAILJS_PUBLIC_KEY,
+        "template_params": {
+            "to_email": to,
+            "subject": subject,
+            "html_body": html,
+            "text_body": text,
+        },
+    }
+    if config.EMAILJS_PRIVATE_KEY:
+        payload["accessToken"] = config.EMAILJS_PRIVATE_KEY
+
+    try:
+        response = requests.post(EMAILJS_API_URL, json=payload, timeout=15)
+        if response.status_code >= 400:
+            logger.error("EmailJS API error %s: %s", response.status_code, response.text[:300])
+            return False
+        logger.info("EmailJS accepted message for delivery to %s", to)
+        return True
+    except requests.exceptions.RequestException as exc:
+        logger.error("Failed to send email via EmailJS: %s", exc)
         return False
 
+
+def _send_via_smtp(to: str, subject: str, html: str, text: str) -> bool:
     from_email = config.SMTP_FROM_EMAIL
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -67,7 +104,7 @@ def send_email(to: str, subject: str, html: str, text: str = None) -> bool:
     msg["Auto-Submitted"] = "auto-generated"
     # Plain-text part must come first - clients render the last alternative
     # that they support, so HTML (the richer version) goes second.
-    msg.attach(MIMEText(text or _html_to_text(html), "plain"))
+    msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
     try:
@@ -96,6 +133,29 @@ def send_email(to: str, subject: str, html: str, text: str = None) -> bool:
     except OSError as exc:
         logger.error("Failed to connect to %s:%s: %s", config.SMTP_HOST, config.SMTP_PORT, exc)
         return False
+
+
+def send_email(to: str, subject: str, html: str, text: str = None) -> bool:
+    """Send a transactional email. Returns True on success, False otherwise.
+
+    Routes to EmailJS if configured, otherwise SMTP. Always sends a
+    text/plain alternative alongside the HTML - an HTML-only message is one
+    of the more heavily-weighted signals in spam scoring (SpamAssassin's
+    MIME_HTML_ONLY rule and similar).
+    """
+    text = text or _html_to_text(html)
+
+    if config.EMAILJS_SERVICE_ID:
+        return _send_via_emailjs(to, subject, html, text)
+
+    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
+        logger.warning(
+            "Neither EMAILJS_SERVICE_ID nor SMTP_USERNAME/SMTP_PASSWORD is set - "
+            "skipping email send to %s", to
+        )
+        return False
+
+    return _send_via_smtp(to, subject, html, text)
 
 
 def send_password_reset_email(to: str, reset_url: str) -> bool:

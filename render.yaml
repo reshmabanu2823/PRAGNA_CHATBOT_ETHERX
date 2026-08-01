@@ -101,6 +101,23 @@ services:
       - key: SMTP_FROM_NAME
         sync: false # Optional - display name on outgoing mail, defaults to
                      # "Pragna-1 A".
+      - key: EMAILJS_SERVICE_ID
+        sync: false # Optional - if set, email_service.py sends via EmailJS
+                     # instead of SMTP (SMTP_* above is then unused). From
+                     # the EmailJS dashboard: Email Services -> your service.
+      - key: EMAILJS_TEMPLATE_ID
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. The template
+                     # must accept to_email/subject/html_body/text_body
+                     # variables - see services/email_service.py for the
+                     # exact contract.
+      - key: EMAILJS_PUBLIC_KEY
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Account ->
+                     # General in the EmailJS dashboard.
+      - key: EMAILJS_PRIVATE_KEY
+        sync: false # Optional but recommended for server-side sends.
+                     # Account -> API Keys - also enable "Allow non-browser
+                     # requests using the SDK" there, or EmailJS rejects
+                     # calls with no browser Origin header.
       - key: RAG_ENABLED
         value: "False" # REQUIRED on Render's free tier (~512MB RAM): True
                         # eagerly loads sentence-transformers/torch/faiss in

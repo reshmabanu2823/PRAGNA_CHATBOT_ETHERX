@@ -55,6 +55,21 @@ SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '') or SMTP_USERNAME
 SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Pragna-1 A')
 
+# EmailJS (https://www.emailjs.com) - REST API transport, used instead of
+# SMTP when EMAILJS_SERVICE_ID is set. Needs, from the EmailJS dashboard:
+#   - Email Services -> your connected service -> EMAILJS_SERVICE_ID
+#   - Email Templates -> your template -> EMAILJS_TEMPLATE_ID (must accept
+#     to_email, subject, html_body, text_body as template variables - see
+#     services/email_service.py for the exact contract)
+#   - Account -> General -> EMAILJS_PUBLIC_KEY
+#   - Account -> API Keys -> EMAILJS_PRIVATE_KEY, AND toggle on "Allow
+#     non-browser requests using the SDK" - without that, EmailJS rejects
+#     server-to-server calls that don't carry a browser Origin header.
+EMAILJS_SERVICE_ID = os.getenv('EMAILJS_SERVICE_ID', '')
+EMAILJS_TEMPLATE_ID = os.getenv('EMAILJS_TEMPLATE_ID', '')
+EMAILJS_PUBLIC_KEY = os.getenv('EMAILJS_PUBLIC_KEY', '')
+EMAILJS_PRIVATE_KEY = os.getenv('EMAILJS_PRIVATE_KEY', '')
+
 # Per-client-IP rate limit for the unauthenticated AI generation endpoints
 # (/api/images/generate, /api/documents/generate) - each call triggers an LLM
 # request and/or a disk write, so these need a cap independent of auth.
