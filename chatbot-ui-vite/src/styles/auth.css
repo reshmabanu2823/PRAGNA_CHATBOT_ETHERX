@@ -173,13 +173,15 @@
 }
 
 .auth-box {
-  background: var(--pragna-surface);
-  border: 1px solid rgba(212, 175, 55, 0.2);
-  border-radius: 12px;
-  padding: 24px 32px;
-  width: 100%;
-  max-width: 440px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  background: rgba(12, 10, 14, 0.78);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  border-radius: 16px;
+  padding: 26px 24px;
+  width: 90%;
+  max-width: 370px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 24px rgba(212, 175, 55, 0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   position: relative;
   z-index: 10;
 }
@@ -188,14 +190,15 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 25px;
+  margin-bottom: 20px;
 }
 
 .auth-logo-centered {
-  width: 140px;
+  width: 210px;
+  max-width: 85%;
   height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 0 12px rgba(212, 175, 55, 0.35));
+  filter: drop-shadow(0 0 16px rgba(212, 175, 55, 0.45));
 }
 
 .auth-box h1 {
@@ -295,6 +298,55 @@
   color: rgba(255, 255, 255, 0.6);
   font-size: 14px;
   margin-top: 20px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px 0;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12.5px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(212, 175, 55, 0.18);
+}
+
+.auth-oauth-row {
+  display: flex;
+  gap: 10px;
+}
+
+.auth-oauth-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-oauth-btn:hover:not(:disabled) {
+  border-color: rgba(212, 175, 55, 0.45);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.auth-oauth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .auth-toggle button {
