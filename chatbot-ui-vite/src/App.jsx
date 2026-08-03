@@ -74,17 +74,46 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Google/GitHub sign-in lands back here from the backend's
+    // /api/auth/<provider>/callback redirect, which appends the result to
+    // the query string (there's no server-side session to read it from -
+    // see backend/app.py's _oauth_success_redirect). Handle that before
+    // falling back to the normal "already logged in" localStorage check,
+    // and strip the params either way so a refresh doesn't try to log in
+    // again with a token that's already been consumed.
+    const oauthParams = new URLSearchParams(window.location.search);
+    const oauthToken = oauthParams.get('oauth_token');
+    if (oauthToken) {
+      const oauthUserId = oauthParams.get('user_id') || '';
+      const oauthUsername = oauthParams.get('username') || '';
+      const oauthEmail = oauthParams.get('email') || '';
+
+      localStorage.setItem('authToken', oauthToken);
+      localStorage.setItem('userId', oauthUserId);
+      localStorage.setItem('authUsername', oauthUsername);
+      localStorage.setItem('authEmail', oauthEmail);
+
+      const url = new URL(window.location.href);
+      ['oauth_token', 'user_id', 'username', 'email'].forEach((key) => url.searchParams.delete(key));
+      window.history.replaceState({}, '', url.pathname + url.search);
+
+      setIsAuthenticated(true);
+      setUserProfile({ username: oauthUsername, email: oauthEmail });
+      setLoading(false);
+      return;
+    }
+
     // Check if user is already logged in
     const savedToken = localStorage.getItem('authToken');
     const savedUserId = localStorage.getItem('userId');
     const savedUsername = localStorage.getItem('authUsername') || '';
     const savedEmail = localStorage.getItem('authEmail') || '';
-    
+
     if (savedToken && savedUserId) {
       setIsAuthenticated(true);
       setUserProfile({ username: savedUsername, email: savedEmail });
     }
-    
+
     setLoading(false);
   }, []);
 

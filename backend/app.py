@@ -10,7 +10,7 @@ import os
 import io
 import time
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify, send_from_directory, Response
+from flask import Flask, request, jsonify, send_from_directory, Response, redirect
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -30,6 +30,7 @@ from database import db
 from psycopg.rows import dict_row
 from chat_management_api import chat_management_bp, validate_chat_ownership
 from services import code_agent
+from services import oauth_service
 
 # Configure logging
 logging.basicConfig(
@@ -2129,6 +2130,112 @@ def login():
     except Exception as e:
         logger.error(f"Login error: {e}")
         return jsonify({'error': 'Login failed'}), 500
+
+
+def _resolve_oauth_user(provider, profile):
+    """Find-or-create the local account for an OAuth profile. Auto-links by
+    email: if a password-based account already uses this address, the OAuth
+    provider is attached to it rather than creating a second account, so
+    either login method works from then on. Returns (user_id, jwt)."""
+    existing = db.get_user_by_oauth(provider, profile['oauth_id'])
+    if existing:
+        user_id = existing['id']
+    else:
+        by_email = db.get_user_by_email(profile['email'])
+        if by_email:
+            db.link_oauth_account(by_email['id'], provider, profile['oauth_id'])
+            user_id = by_email['id']
+        else:
+            user_id = db.create_oauth_user(
+                profile['username_hint'], profile['email'], provider, profile['oauth_id']
+            )
+            if not user_id:
+                # Rare race: the email or oauth id got taken between our
+                # check above and the insert (e.g. two callbacks for the
+                # same new user in flight at once) - re-check and link.
+                by_email = db.get_user_by_email(profile['email'])
+                if not by_email:
+                    raise RuntimeError('Failed to create or link OAuth account')
+                db.link_oauth_account(by_email['id'], provider, profile['oauth_id'])
+                user_id = by_email['id']
+
+    return user_id, auth_service.generate_token(user_id)
+
+
+def _oauth_redirect_uri(provider):
+    return f"{config.BACKEND_URL}/api/auth/{provider}/callback"
+
+
+def _oauth_error_redirect(reason):
+    return redirect(f"{config.FRONTEND_URL}/?oauth_error={urllib.parse.quote(reason)}")
+
+
+def _oauth_success_redirect(user_id, token):
+    user_row = db.get_user_by_id(user_id)
+    params = urllib.parse.urlencode({
+        'oauth_token': token,
+        'user_id': user_id,
+        'username': (user_row or {}).get('username', ''),
+        'email': (user_row or {}).get('email', ''),
+    })
+    return redirect(f"{config.FRONTEND_URL}/?{params}")
+
+
+@app.route('/api/auth/google/login', methods=['GET'])
+def google_oauth_login():
+    if not config.GOOGLE_CLIENT_ID or not config.GOOGLE_CLIENT_SECRET:
+        return jsonify({'error': 'Google login is not configured on this server'}), 503
+    state = oauth_service.make_state()
+    return redirect(oauth_service.google_authorize_url(_oauth_redirect_uri('google'), state))
+
+
+@app.route('/api/auth/google/callback', methods=['GET'])
+def google_oauth_callback():
+    if request.args.get('error'):
+        return _oauth_error_redirect(request.args['error'])
+
+    state = request.args.get('state')
+    code = request.args.get('code')
+    if not oauth_service.verify_state(state) or not code:
+        return _oauth_error_redirect('invalid_state')
+
+    try:
+        profile = oauth_service.google_fetch_profile(code, _oauth_redirect_uri('google'))
+        user_id, token = _resolve_oauth_user('google', profile)
+    except Exception as e:
+        logger.error(f"Google OAuth callback failed: {e}", exc_info=True)
+        return _oauth_error_redirect('login_failed')
+
+    return _oauth_success_redirect(user_id, token)
+
+
+@app.route('/api/auth/github/login', methods=['GET'])
+def github_oauth_login():
+    if not config.GITHUB_CLIENT_ID or not config.GITHUB_CLIENT_SECRET:
+        return jsonify({'error': 'GitHub login is not configured on this server'}), 503
+    state = oauth_service.make_state()
+    return redirect(oauth_service.github_authorize_url(_oauth_redirect_uri('github'), state))
+
+
+@app.route('/api/auth/github/callback', methods=['GET'])
+def github_oauth_callback():
+    if request.args.get('error'):
+        return _oauth_error_redirect(request.args['error'])
+
+    state = request.args.get('state')
+    code = request.args.get('code')
+    if not oauth_service.verify_state(state) or not code:
+        return _oauth_error_redirect('invalid_state')
+
+    try:
+        profile = oauth_service.github_fetch_profile(code, _oauth_redirect_uri('github'))
+        user_id, token = _resolve_oauth_user('github', profile)
+    except Exception as e:
+        logger.error(f"GitHub OAuth callback failed: {e}", exc_info=True)
+        return _oauth_error_redirect('login_failed')
+
+    return _oauth_success_redirect(user_id, token)
+
 
 @app.route('/api/auth/verify', methods=['GET'])
 @require_auth

@@ -267,7 +267,11 @@ class Database:
             self.release_connection(conn)
 
     def verify_password(self, stored_hash, password):
-        """Verify password against stored hash"""
+        """Verify password against stored hash. stored_hash is None for
+        OAuth-only accounts (no password was ever set) - no password can
+        match that, so fail closed instead of crashing on None.encode()."""
+        if not stored_hash:
+            return False
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
 
     def update_password(self, user_id, new_password):
@@ -319,6 +323,72 @@ class Database:
             c.execute('SELECT * FROM users WHERE email = %s', (email,))
             user = c.fetchone()
             return dict(user) if user else None
+        finally:
+            self.release_connection(conn)
+
+    # OAUTH (Google / GitHub)
+    def get_user_by_oauth(self, provider, oauth_id):
+        """Get user by (oauth_provider, oauth_id) pair"""
+        conn = self.get_connection()
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute(
+                'SELECT * FROM users WHERE oauth_provider = %s AND oauth_id = %s',
+                (provider, oauth_id),
+            )
+            user = c.fetchone()
+            return dict(user) if user else None
+        finally:
+            self.release_connection(conn)
+
+    def _unique_username(self, cursor, base):
+        """Derive a free username from `base` (already lowercased/sanitized
+        by the caller), appending a numeric suffix on collision. Runs on the
+        same connection/transaction as the insert that follows so there's no
+        TOCTOU gap between checking and reserving the name."""
+        candidate = base or 'user'
+        suffix = 0
+        while True:
+            cursor.execute('SELECT 1 FROM users WHERE username = %s', (candidate,))
+            if not cursor.fetchone():
+                return candidate
+            suffix += 1
+            candidate = f"{base}{suffix}"
+
+    def create_oauth_user(self, username, email, oauth_provider, oauth_id):
+        """Create a new account with no password, identified by an OAuth
+        provider + id. `username` is a suggestion - collisions are resolved
+        automatically since OAuth doesn't give the user a chance to pick one
+        up front."""
+        user_id = hashlib.md5(f"{email}{oauth_provider}{datetime.now()}".encode()).hexdigest()
+        conn = self.get_connection()
+        try:
+            c = conn.cursor()
+            final_username = self._unique_username(c, username)
+            c.execute('''
+                INSERT INTO users (id, username, email, password_hash, oauth_provider, oauth_id)
+                VALUES (%s, %s, %s, NULL, %s, %s)
+            ''', (user_id, final_username, email, oauth_provider, oauth_id))
+            conn.commit()
+            return user_id
+        except psycopg.errors.IntegrityError:
+            conn.rollback()
+            return None
+        finally:
+            self.release_connection(conn)
+
+    def link_oauth_account(self, user_id, oauth_provider, oauth_id):
+        """Attach an OAuth provider to an existing (password-based) account,
+        so its owner can log in either way from now on."""
+        conn = self.get_connection()
+        try:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE users SET oauth_provider = %s, oauth_id = %s, updated_at = NOW() WHERE id = %s',
+                (oauth_provider, oauth_id, user_id),
+            )
+            conn.commit()
+            return c.rowcount > 0
         finally:
             self.release_connection(conn)
 
