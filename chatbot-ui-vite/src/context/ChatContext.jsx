@@ -4,24 +4,65 @@ import { listPersonas } from "../api/api";
 
 export const ChatContext = createContext();
 
+// Chat data used to live under these global localStorage keys, shared by
+// every account that ever logged in on the same browser - log out, log into
+// a different account, and their chats/folders/etc. were still sitting there
+// waiting for you. Namespacing each key by userId fixes that going forward;
+// migrateLegacyKeys() does a one-time best-effort handoff of any data still
+// sitting under the old global key to whichever account logs in next (so the
+// last person who actually owned it doesn't just lose it), then deletes the
+// global key so it can never leak into the account after that.
+const LEGACY_KEYS = [
+  "pragna_chats",
+  "pragna_folders",
+  "pragna_templates",
+  "pragna_active_chat_id",
+  "pragna_active_persona_id",
+  "pragna_nickname",
+  "pragna_instructions",
+];
+
+function migrateLegacyKeys(userId) {
+  LEGACY_KEYS.forEach((legacyKey) => {
+    const scopedKey = `${legacyKey}_${userId}`;
+    if (localStorage.getItem(scopedKey) === null) {
+      const legacyValue = localStorage.getItem(legacyKey);
+      if (legacyValue !== null) {
+        localStorage.setItem(scopedKey, legacyValue);
+      }
+    }
+    localStorage.removeItem(legacyKey);
+  });
+}
+
 export function ChatProvider({ children }) {
+  // ChatProvider only ever mounts while authenticated (see src/App.jsx), so
+  // userId is set by the time this runs; "anon" is just a defensive fallback.
+  const [userId] = useState(() => {
+    const id = localStorage.getItem("userId") || "anon";
+    migrateLegacyKeys(id);
+    return id;
+  });
+
+  const scoped = useCallback((key) => `${key}_${userId}`, [userId]);
+
   const [chats, setChats] = useState(() => {
-    const saved = localStorage.getItem("pragna_chats");
+    const saved = localStorage.getItem(scoped("pragna_chats"));
     return saved ? JSON.parse(saved) : [];
   });
 
   const [folders, setFolders] = useState(() => {
-    const saved = localStorage.getItem("pragna_folders");
+    const saved = localStorage.getItem(scoped("pragna_folders"));
     return saved ? JSON.parse(saved) : [];
   });
 
   const [templates, setTemplates] = useState(() => {
-    const saved = localStorage.getItem("pragna_templates");
+    const saved = localStorage.getItem(scoped("pragna_templates"));
     return saved ? JSON.parse(saved) : [];
   });
 
   const [activeChatId, setActiveChatId] = useState(() => {
-    const saved = localStorage.getItem("pragna_active_chat_id");
+    const saved = localStorage.getItem(scoped("pragna_active_chat_id"));
     return saved || null;
   });
 
@@ -72,7 +113,7 @@ export function ChatProvider({ children }) {
   const [personas, setPersonas] = useState([]);
 
   const [activePersonaId, setActivePersonaId] = useState(() => {
-    return localStorage.getItem("pragna_active_persona_id") || null;
+    return localStorage.getItem(scoped("pragna_active_persona_id")) || null;
   });
 
   const [desktopNotifications, setDesktopNotificationsState] = useState(() => {
@@ -100,16 +141,16 @@ export function ChatProvider({ children }) {
 
   // Save to localStorage
   useEffect(() => {
-    localStorage.setItem("pragna_chats", JSON.stringify(chats));
-  }, [chats]);
+    localStorage.setItem(scoped("pragna_chats"), JSON.stringify(chats));
+  }, [chats, scoped]);
 
   useEffect(() => {
-    localStorage.setItem("pragna_folders", JSON.stringify(folders));
-  }, [folders]);
+    localStorage.setItem(scoped("pragna_folders"), JSON.stringify(folders));
+  }, [folders, scoped]);
 
   useEffect(() => {
-    localStorage.setItem("pragna_templates", JSON.stringify(templates));
-  }, [templates]);
+    localStorage.setItem(scoped("pragna_templates"), JSON.stringify(templates));
+  }, [templates, scoped]);
 
   // Save chat mode
   useEffect(() => {
@@ -119,11 +160,11 @@ export function ChatProvider({ children }) {
   // Save active persona selection
   useEffect(() => {
     if (activePersonaId) {
-      localStorage.setItem("pragna_active_persona_id", activePersonaId);
+      localStorage.setItem(scoped("pragna_active_persona_id"), activePersonaId);
     } else {
-      localStorage.removeItem("pragna_active_persona_id");
+      localStorage.removeItem(scoped("pragna_active_persona_id"));
     }
-  }, [activePersonaId]);
+  }, [activePersonaId, scoped]);
 
   const refreshPersonas = useCallback(async () => {
     try {
@@ -143,11 +184,11 @@ export function ChatProvider({ children }) {
 
   useEffect(() => {
     if (activeChatId) {
-      localStorage.setItem("pragna_active_chat_id", activeChatId);
+      localStorage.setItem(scoped("pragna_active_chat_id"), activeChatId);
     } else {
-      localStorage.removeItem("pragna_active_chat_id");
+      localStorage.removeItem(scoped("pragna_active_chat_id"));
     }
-  }, [activeChatId]);
+  }, [activeChatId, scoped]);
 
   useEffect(() => {
     localStorage.setItem("pragna_language", language);
@@ -279,6 +320,7 @@ export function ChatProvider({ children }) {
   return (
     <ChatContext.Provider
       value={{
+        userId,
         chats,
         setChats,
         activeChatId,

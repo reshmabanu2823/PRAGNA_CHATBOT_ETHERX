@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import '../../styles/auth.css';
 import { authAPI } from '../../api/authAPI';
+import PasswordInput from '../ui/PasswordInput';
 import pragnaLogo from '../../assets/pragna-logo-full.png';
 
 // The animated backdrop used to be a Vanta.js WebGL globe pulled from two
@@ -341,8 +342,7 @@ export default function Login({ onLoginSuccess }) {
                 />
               )}
 
-              <input
-                type="password"
+              <PasswordInput
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

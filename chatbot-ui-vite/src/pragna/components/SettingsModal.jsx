@@ -2,19 +2,24 @@ import { useState, useEffect, useContext } from 'react'
 import { ChatContext } from '../../context/ChatContext'
 import { changePassword, deleteAccount } from '../../api/api'
 import { SUPPORTED_LANGUAGE_OPTIONS } from '../../utils/language'
+import PasswordInput from '../../components/ui/PasswordInput'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
   const [activeTab, setActiveTab] = useState('General')
   const {
+    userId,
     chatFont, setChatFont, chats, setChats,
     chatMode, setChatMode, language, setLanguage,
     desktopNotifications, setDesktopNotifications,
   } = useContext(ChatContext)
 
+  const isMobile = useMediaQuery('(max-width: 640px)')
+
   // Settings States matching mockup
   const [userName, setUserName] = useState(() => userProfile?.username || localStorage.getItem('authUsername') || 'vianan')
-  const [nickname, setNickname] = useState(() => localStorage.getItem('pragna_nickname') || '')
-  const [instructions, setInstructions] = useState(() => localStorage.getItem('pragna_instructions') || '')
+  const [nickname, setNickname] = useState(() => localStorage.getItem(`pragna_nickname_${userId}`) || '')
+  const [instructions, setInstructions] = useState(() => localStorage.getItem(`pragna_instructions_${userId}`) || '')
   const [generalSaved, setGeneralSaved] = useState(false)
 
   // Preferences drafts - only committed to ChatContext (and localStorage via
@@ -147,8 +152,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
 
   const handleSaveGeneral = () => {
     localStorage.setItem('authUsername', userName)
-    localStorage.setItem('pragna_nickname', nickname)
-    localStorage.setItem('pragna_instructions', instructions)
+    localStorage.setItem(`pragna_nickname_${userId}`, nickname)
+    localStorage.setItem(`pragna_instructions_${userId}`, instructions)
     setGeneralSaved(true)
     setTimeout(() => setGeneralSaved(false), 2500)
   }
@@ -248,15 +253,25 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0 }}></div>
-      <div style={{ position: 'relative', width: 'min(920px, 92vw)', height: 'min(680px, 88vh)', display: 'flex', borderRadius: '20px', overflow: 'hidden', background: 'var(--pragna-surface)', border: '1px solid rgba(212,175,55,0.2)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}>
-        
-        {/* Settings Left Nav */}
-        <div style={{ width: '232px', flexShrink: 0, padding: '22px 14px', background: 'var(--pragna-surface-2)', borderRight: '1px solid var(--pragna-border)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ display: 'flex', alignMeters: 'center', gap: '9px', padding: '8px 10px 18px 10px', alignItems: 'center' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--pragna-text-muted)" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
-            <span style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', whiteSpace: 'nowrap' }}>Search settings</span>
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '1px', color: 'var(--pragna-text-muted)', padding: '0 10px 8px 10px' }}>SETTINGS</div>
+      <div style={{ position: 'relative', width: isMobile ? '100vw' : 'min(920px, 92vw)', height: isMobile ? '100dvh' : 'min(680px, 88vh)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', borderRadius: isMobile ? 0 : '20px', overflow: 'hidden', background: 'var(--pragna-surface)', border: isMobile ? 'none' : '1px solid rgba(212,175,55,0.2)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}>
+
+        {/* Settings Left Nav (horizontal tab strip on mobile) */}
+        <div
+          style={
+            isMobile
+              ? { width: '100%', flexShrink: 0, padding: '10px 10px', background: 'var(--pragna-surface-2)', borderBottom: '1px solid var(--pragna-border)', display: 'flex', flexDirection: 'row', gap: '6px', overflowX: 'auto' }
+              : { width: '232px', flexShrink: 0, padding: '22px 14px', background: 'var(--pragna-surface-2)', borderRight: '1px solid var(--pragna-border)', display: 'flex', flexDirection: 'column', gap: '4px' }
+          }
+        >
+          {!isMobile && (
+            <>
+              <div style={{ display: 'flex', gap: '9px', padding: '8px 10px 18px 10px', alignItems: 'center' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--pragna-text-muted)" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+                <span style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', whiteSpace: 'nowrap' }}>Search settings</span>
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '1px', color: 'var(--pragna-text-muted)', padding: '0 10px 8px 10px' }}>SETTINGS</div>
+            </>
+          )}
           {tabs.map((tab) => {
             const active = activeTab === tab.label
             return (
@@ -267,8 +282,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '11px',
-                  padding: '10px 12px',
-                  borderRadius: '10px',
+                  padding: isMobile ? '8px 14px' : '10px 12px',
+                  borderRadius: isMobile ? '999px' : '10px',
                   border: 'none',
                   background: active ? 'linear-gradient(135deg, rgba(212,175,55,0.16), rgba(184,134,11,0.08))' : 'transparent',
                   color: active ? 'var(--pragna-gold-soft)' : 'var(--pragna-text-soft)',
@@ -277,6 +292,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                   cursor: 'pointer',
                   textAlign: 'left',
                   transition: 'all 0.15s ease',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
                 }}
                 className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
               >
@@ -290,8 +307,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
         </div>
 
         {/* Settings Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '30px 40px', minWidth: 0, position: 'relative' }}>
-          
+        <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 18px 30px 18px' : '30px 40px', minWidth: 0, position: 'relative' }}>
+
           {/* Close button */}
           <button
             onClick={onClose}
@@ -308,8 +325,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
               justifyContent: 'center',
               transition: 'all 0.15s ease',
               position: 'absolute',
-              top: '24px',
-              right: '28px',
+              top: isMobile ? '14px' : '24px',
+              right: isMobile ? '14px' : '28px',
               zIndex: 10,
             }}
             className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
@@ -324,29 +341,29 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
             <div style={{ animation: 'fadeUp 0.15s ease' }}>
               <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: 700, color: 'var(--pragna-text)' }}>Profile</h2>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '30px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0 }}>Avatar</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '30px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0 }}>Avatar</div>
                 <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'linear-gradient(135deg, #2a2415, var(--pragna-surface-2))', border: '1.5px solid rgba(212,175,55,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--pragna-accent)', fontWeight: 700, fontSize: '19px' }}>
                   {userInitial}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0 }}>Full name</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '20px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0 }}>Full name</div>
                 <input
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  style={{ flex: 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
+                  style={{ width: isMobile ? '100%' : 'auto', flex: isMobile ? 'none' : 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
                 />
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px', marginBottom: '30px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0, paddingTop: '11px' }}>Nickname</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'flex-start', gap: isMobile ? '8px' : '20px', marginBottom: '30px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0, paddingTop: isMobile ? '0' : '11px' }}>Nickname</div>
                 <input
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
                   placeholder="What should Pragna call you?"
-                  style={{ flex: 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
+                  style={{ width: isMobile ? '100%' : 'auto', flex: isMobile ? 'none' : 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
                 />
               </div>
 
@@ -385,12 +402,12 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
             <div style={{ animation: 'fadeUp 0.15s ease' }}>
               <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: 700, color: 'var(--pragna-text)' }}>Preferences</h2>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '22px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '150px', flexShrink: 0 }}>Chat font</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '22px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '150px', flexShrink: 0 }}>Chat font</div>
                 <select
                   value={draftChatFont}
                   onChange={(e) => setDraftChatFont(e.target.value)}
-                  style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
+                  style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
                 >
                   <option>Default (Segoe UI)</option>
                   <option>Serif</option>
@@ -398,12 +415,12 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '22px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '150px', flexShrink: 0 }}>Default chat mode</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '22px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '150px', flexShrink: 0 }}>Default chat mode</div>
                 <select
                   value={draftChatMode}
                   onChange={(e) => setDraftChatMode(e.target.value)}
-                  style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
+                  style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
                 >
                   <option value="general">General</option>
                   <option value="explain_concepts">Explain</option>
@@ -415,19 +432,19 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '10px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '150px', flexShrink: 0 }}>Default response language</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '150px', flexShrink: 0 }}>Default response language</div>
                 <select
                   value={draftLanguage}
                   onChange={(e) => setDraftLanguage(e.target.value)}
-                  style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
+                  style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '13.5px', cursor: 'pointer' }}
                 >
                   {SUPPORTED_LANGUAGE_OPTIONS.map((opt) => (
                     <option key={opt.code} value={opt.code}>{opt.label}</option>
                   ))}
                 </select>
               </div>
-              <p style={{ margin: '0 0 26px 166px', fontSize: '12px', color: 'var(--pragna-text-muted)' }}>
+              <p style={{ margin: isMobile ? '0 0 26px 0' : '0 0 26px 166px', fontSize: '12px', color: 'var(--pragna-text-muted)' }}>
                 Can still be switched per-message from the composer.
               </p>
 
@@ -475,31 +492,28 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
             <div style={{ animation: 'fadeUp 0.15s ease' }}>
               <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: 700, color: 'var(--pragna-text)' }}>Account</h2>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '26px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0 }}>Email</div>
-                <div style={{ fontSize: '14px', color: 'var(--pragna-text)' }}>{userProfile?.email || localStorage.getItem('authEmail') || '—'}</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '4px' : '20px', marginBottom: '26px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0 }}>Email</div>
+                <div style={{ fontSize: '14px', color: 'var(--pragna-text)', wordBreak: 'break-all' }}>{userProfile?.email || localStorage.getItem('authEmail') || '—'}</div>
               </div>
 
               <div style={{ marginBottom: '10px' }}>
                 <SectionToggle id="change-password" title="Change password" />
                 {!collapsedSettingsSections.has('change-password') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '360px', marginTop: '12px' }}>
-                  <input
-                    type="password"
+                  <PasswordInput
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     placeholder="Current password"
                     style={{ padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
                   />
-                  <input
-                    type="password"
+                  <PasswordInput
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="New password (min 8 characters)"
                     style={{ padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontFamily: 'inherit', fontSize: '14px' }}
                   />
-                  <input
-                    type="password"
+                  <PasswordInput
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm new password"
@@ -540,8 +554,7 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                     </button>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '360px' }}>
-                      <input
-                        type="password"
+                      <PasswordInput
                         value={deletePassword}
                         onChange={(e) => setDeletePassword(e.target.value)}
                         placeholder="Enter your password to confirm"
@@ -550,7 +563,7 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                       {deleteError && (
                         <div style={{ fontSize: '12.5px', color: '#e8a598' }}>{deleteError}</div>
                       )}
-                      <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                         <button
                           onClick={handleDeleteAccount}
                           disabled={deleting}
@@ -577,8 +590,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
             <div style={{ animation: 'fadeUp 0.15s ease' }}>
               <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: 700, color: 'var(--pragna-text)' }}>Data</h2>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0 }}>Export chats</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0 }}>Export chats</div>
                 <button
                   onClick={handleExportData}
                   style={{ padding: '9px 16px', borderRadius: '10px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: 'var(--pragna-text)', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}
@@ -588,8 +601,8 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                 </button>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: '110px', flexShrink: 0 }}>Chat history</div>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--pragna-text-muted)', width: isMobile ? 'auto' : '110px', flexShrink: 0 }}>Chat history</div>
                 {!clearConfirmOpen ? (
                   <button
                     onClick={() => setClearConfirmOpen(true)}
@@ -599,7 +612,7 @@ const SettingsModal = ({ isOpen, onClose, onLogout, userProfile }) => {
                     Clear all chats
                   </button>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '12.5px', color: 'var(--pragna-text-muted)' }}>Delete all {chats.length} chat{chats.length === 1 ? '' : 's'}? This can't be undone.</span>
                     <button
                       onClick={handleClearHistory}

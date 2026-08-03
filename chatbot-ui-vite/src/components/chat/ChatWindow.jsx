@@ -3,6 +3,7 @@ import { ChatContext } from "../../context/ChatContext";
 import { generateAIImage, generateDocument, sendOrchestratedMessageStream, summarizeChat } from "../../api/api";
 import MessageBubble from "./MessageBubble";
 import { normalizeLanguageCode } from "../../utils/language";
+import { useMediaQuery } from "../../pragna/hooks/useMediaQuery";
 
 const IMAGE_REQUEST_RE = /(create|generate|make|design)\s+(an?\s+)?(ai\s+)?image|image\s+of|illustration\s+of|poster\s+of|logo\s+of/i;
 
@@ -50,6 +51,13 @@ export default function ChatWindow() {
     setActivePersonaId,
     sidebarOpen,
   } = useContext(ChatContext);
+
+  // The floating "reopen sidebar" button this padding makes room for is
+  // desktop-only (see MainLayout.jsx) - on mobile sidebarOpen may still be
+  // false from a desktop session, so gate the extra padding on isDesktop too,
+  // otherwise mobile loses ~64px of its already-scarce width for nothing.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const isMobile = useMediaQuery("(max-width: 640px)");
 
   const chat = chats.find((c) => c.id === activeChatId);
 
@@ -556,9 +564,21 @@ export default function ChatWindow() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
       {/* Chat header (matches mockup) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: sidebarOpen ? '14px 28px' : '14px 28px 14px 64px', borderBottom: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', backdropFilter: 'blur(8px)', flexShrink: 0 }}>
-        <div style={{ fontSize: '15px', fontWeight: 650, color: 'var(--pragna-text)' }}>{chatTitle}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 13px', borderRadius: '999px', background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.22)', fontSize: '12px', fontWeight: 600, color: 'var(--pragna-accent)', letterSpacing: '0.4px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
+          gap: isMobile ? '8px' : '12px',
+          padding: isDesktop && !sidebarOpen ? '14px 28px 14px 64px' : (isMobile ? '12px 16px' : '14px 28px'),
+          borderBottom: '1px solid var(--pragna-border)',
+          background: 'var(--pragna-surface-2)',
+          backdropFilter: 'blur(8px)',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ fontSize: '15px', fontWeight: 650, color: 'var(--pragna-text)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: isMobile ? '100%' : 'none', flexBasis: isMobile ? '100%' : 'auto' }}>{chatTitle}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 13px', borderRadius: '999px', background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.22)', fontSize: '12px', fontWeight: 600, color: 'var(--pragna-accent)', letterSpacing: '0.4px', flexShrink: 0 }}>
           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--pragna-accent)', boxShadow: '0 0 8px rgba(212,175,55,0.8)' }}></span>
           {modeLabel} mode
         </div>
@@ -566,7 +586,7 @@ export default function ChatWindow() {
           value={activePersonaId || ''}
           onChange={(e) => setActivePersonaId(e.target.value || null)}
           title="Persona"
-          style={{ padding: '5px 10px', borderRadius: '999px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: '#d8cbb0', fontFamily: 'inherit', fontSize: '12px', cursor: 'pointer' }}
+          style={{ padding: '5px 10px', borderRadius: '999px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: '#d8cbb0', fontFamily: 'inherit', fontSize: '12px', cursor: 'pointer', minWidth: 0, maxWidth: isMobile ? '140px' : 'none', flexShrink: 1 }}
         >
           <option value="">No persona</option>
           {personas.map((p) => (
@@ -578,7 +598,7 @@ export default function ChatWindow() {
           disabled={summarizing}
           title="Summarize this conversation"
           style={{
-            marginLeft: 'auto',
+            marginLeft: isMobile ? '0' : 'auto',
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
@@ -591,6 +611,7 @@ export default function ChatWindow() {
             fontWeight: 600,
             cursor: summarizing ? 'default' : 'pointer',
             opacity: summarizing ? 0.6 : 1,
+            flexShrink: 0,
           }}
           className="hover:text-[var(--pragna-gold-soft)] hover:border-accent-500/40"
         >
