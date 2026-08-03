@@ -30,6 +30,21 @@ CORS_ALLOWED_ORIGINS = (
 # production so reset emails point at the real deployed frontend.
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5180').rstrip('/')
 
+# Backend's own public origin, used to build the OAuth redirect_uri sent to
+# Google/GitHub (must exactly match a URI registered on the provider's app).
+# Falls back to localhost for local dev - set explicitly in production.
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5001').rstrip('/')
+
+# Google OAuth (console.cloud.google.com -> APIs & Services -> Credentials).
+# Authorized redirect URI to register: {BACKEND_URL}/api/auth/google/callback
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+
+# GitHub OAuth (github.com/settings/developers -> OAuth Apps).
+# Authorization callback URL to register: {BACKEND_URL}/api/auth/github/callback
+GITHUB_CLIENT_ID = os.getenv('GITHUB_CLIENT_ID', '')
+GITHUB_CLIENT_SECRET = os.getenv('GITHUB_CLIENT_SECRET', '')
+
 # SMTP for transactional email (password reset, etc). Provider-agnostic:
 # any SMTP host works, so switching providers is an env change, not a code
 # change. Port decides the encryption mode - 465 implicit TLS, anything

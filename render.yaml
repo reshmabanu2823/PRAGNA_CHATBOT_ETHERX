@@ -91,6 +91,30 @@ services:
                      # .onrender.com). Used to build the reset link sent by
                      # email - defaults to localhost otherwise, which breaks
                      # for anyone except you on your own dev machine.
+      - key: BACKEND_URL
+        sync: false # REQUIRED for Google/GitHub sign-in: set to this
+                     # service's own URL (e.g. https://etherx-backend
+                     # .onrender.com). Used to build the OAuth redirect_uri -
+                     # must exactly match the callback URL registered on
+                     # each provider's app (see GOOGLE_CLIENT_ID /
+                     # GITHUB_CLIENT_ID below for the exact paths).
+      - key: GOOGLE_CLIENT_ID
+        sync: false # Optional - Google sign-in is disabled (button returns
+                     # 503) until both this and GOOGLE_CLIENT_SECRET are set.
+                     # From console.cloud.google.com -> APIs & Services ->
+                     # Credentials -> OAuth 2.0 Client ID (type: Web
+                     # application). Authorized redirect URI to register:
+                     # {BACKEND_URL}/api/auth/google/callback
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false # Optional - GitHub sign-in is disabled (button returns
+                     # 503) until both this and GITHUB_CLIENT_SECRET are
+                     # set. From github.com/settings/developers -> OAuth
+                     # Apps -> New OAuth App. Authorization callback URL to
+                     # register: {BACKEND_URL}/api/auth/github/callback
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
       - key: SMTP_USERNAME
         sync: false # REQUIRED for password-reset emails to actually send.
                      # SMTP login - for Gmail the full address, for SendGrid
