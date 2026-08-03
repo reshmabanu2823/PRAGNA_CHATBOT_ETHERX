@@ -3,6 +3,7 @@ import '../../styles/auth.css';
 import { authAPI } from '../../api/authAPI';
 import PasswordInput from '../ui/PasswordInput';
 import pragnaLogo from '../../assets/pragna-logo-full.png';
+import InteractiveNeuralVortex from './InteractiveNeuralVortex';
 
 // Rendered when the URL has a ?token= param (the link from the password
 // reset email points here). No router in this app, so App.jsx decides
@@ -44,6 +45,7 @@ export default function ResetPassword({ token, onDone }) {
 
   return (
     <div className="auth-container">
+      <InteractiveNeuralVortex />
       <div className="auth-header">
         <div className="header-logo-container">
           <img src={pragnaLogo} alt="Pragna" className="header-logo-small" />
