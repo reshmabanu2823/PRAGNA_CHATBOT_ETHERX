@@ -193,3 +193,13 @@
 .pragna-shell .to-accent-700 {
   --tw-gradient-to: var(--pragna-gold-deep) var(--tw-gradient-to-position) !important;
 }
+
+/* `group-hover:opacity-*` (message action icons, sidebar recent-item menu
+   button, etc.) relies on :hover, which touchscreens never trigger - those
+   controls would otherwise be permanently invisible on mobile. Force them
+   visible whenever the primary input has no hover capability. */
+@media (hover: none) {
+  .group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+}

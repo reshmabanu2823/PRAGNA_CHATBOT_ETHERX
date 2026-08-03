@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import '../../styles/auth.css';
 import { authAPI } from '../../api/authAPI';
+import PasswordInput from '../ui/PasswordInput';
 import pragnaLogo from '../../assets/pragna-logo-full.png';
+import InteractiveNeuralVortex from './InteractiveNeuralVortex';
 
 // The animated backdrop used to be a Vanta.js WebGL globe pulled from two
 // CDNs (three.js r128 + vanta.globe) on every mount. That cost ~600KB over a
@@ -217,7 +219,7 @@ export default function Login({ onLoginSuccess }) {
 
   return (
     <div className="auth-container">
-      <div className="auth-canvas" aria-hidden="true"></div>
+      <InteractiveNeuralVortex />
 
       <div className="auth-box">
         <div className="auth-logo-wrapper">
@@ -341,8 +343,7 @@ export default function Login({ onLoginSuccess }) {
                 />
               )}
 
-              <input
-                type="password"
+              <PasswordInput
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

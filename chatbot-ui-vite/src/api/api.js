@@ -85,6 +85,7 @@ export const sendOrchestratedMessage = async (text, language, user_id, chatMode 
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ..._authHeaders(),
     },
     body: JSON.stringify({
       message: text,
@@ -122,6 +123,7 @@ export const sendOrchestratedMessageStream = async ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ..._authHeaders(),
     },
     body: JSON.stringify({
       message: text,
@@ -180,6 +182,7 @@ export const sendOrchestratedUploadMessage = async (
 
   const response = await fetch(`${API_BASE}/api/orchestrator/analyze_uploads`, {
     method: "POST",
+    headers: _authHeaders(),
     body: formData,
   });
 
@@ -200,6 +203,7 @@ export const sendMessage = async (text, language, user_id, chatMode = "general")
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ..._authHeaders(),
     },
     body: JSON.stringify({
       message: text,

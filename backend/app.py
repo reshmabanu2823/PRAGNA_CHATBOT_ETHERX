@@ -28,7 +28,7 @@ from services import vision_service
 from auth import auth_service, require_auth
 from database import db
 from psycopg.rows import dict_row
-from chat_management_api import chat_management_bp
+from chat_management_api import chat_management_bp, validate_chat_ownership
 from services import code_agent
 
 # Configure logging
@@ -561,6 +561,7 @@ def index():
 
 
 @app.route('/api/chat', methods=['POST'])
+@require_auth
 def chat():
     """
     Main chat endpoint
@@ -569,28 +570,35 @@ def chat():
     """
     try:
         data = request.json
-        
+
         # Validate input
         if not data or 'message' not in data:
             return jsonify({'error': 'Message is required'}), 400
-        
+
         user_message = data.get('message', '').strip()
         language = _normalize_language_code(data.get('language', 'en'))
-        user_id = data.get('user_id', 'default')
+        # "user_id" here is really the client-generated chat id, not the
+        # account id - trusting it blindly let anyone read/hijack any chat
+        # by guessing its (very guessable, timestamp-derived) id. Requiring
+        # auth and checking ownership closes that without changing the
+        # per-chat memory granularity the rest of the app relies on.
+        chat_id = (data.get('user_id') or '').strip() or request.user_id
+        if not validate_chat_ownership(chat_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         chat_mode = data.get('chat_mode', 'general')
         model_override = data.get('model_override')
         fallback_models = data.get('fallback_models')
-        
+
         if not user_message:
             return jsonify({'error': 'Message cannot be empty'}), 400
-        
+
         logger.info(f"Received message: {user_message[:50]}... (language: {language}, mode: {chat_mode})")
-        
+
         # Unified orchestration path (agent tools + LLM/RAG)
         result = orchestrator.handle_query(
             user_message,
             language=language,
-            user_id=user_id,
+            user_id=chat_id,
             chat_mode=chat_mode,
             model_override=model_override,
             fallback_models=fallback_models,
@@ -653,13 +661,16 @@ def test_ollama_direct():
 
 
 @app.route('/api/orchestrator/query', methods=['POST'])
+@require_auth
 def orchestrator_query():
     """Explicit orchestrator endpoint for agent + RAG + LLM routing."""
     try:
         data = request.json or {}
         user_message = (data.get('message') or '').strip()
         language = _normalize_language_code(data.get('language', 'en'))
-        user_id = data.get('user_id', 'default')
+        chat_id = (data.get('user_id') or '').strip() or request.user_id
+        if not validate_chat_ownership(chat_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         chat_mode = data.get('chat_mode', 'general')
         model_override = data.get('model_override')
         fallback_models = data.get('fallback_models')
@@ -670,7 +681,7 @@ def orchestrator_query():
         result = orchestrator.handle_query(
             user_message,
             language=language,
-            user_id=user_id,
+            user_id=chat_id,
             chat_mode=chat_mode,
             model_override=model_override,
             fallback_models=fallback_models,
@@ -683,6 +694,7 @@ def orchestrator_query():
 
 
 @app.route('/api/orchestrator/analyze_uploads', methods=['POST'])
+@require_auth
 def orchestrator_analyze_uploads():
     """Analyze uploaded files/folders/photos and generate an orchestrated response."""
     try:
@@ -692,7 +704,9 @@ def orchestrator_analyze_uploads():
 
         user_message = (request.form.get('message') or '').strip()
         language = _normalize_language_code(request.form.get('language', 'en'))
-        user_id = request.form.get('user_id', 'default')
+        chat_id = (request.form.get('user_id') or '').strip() or request.user_id
+        if not validate_chat_ownership(chat_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         chat_mode = request.form.get('chat_mode', 'general')
         model_override = request.form.get('model_override')
         fallback_models_raw = request.form.get('fallback_models', '[]')
@@ -716,7 +730,7 @@ def orchestrator_analyze_uploads():
         result = orchestrator.handle_query(
             composed_prompt,
             language=language,
-            user_id=user_id,
+            user_id=chat_id,
             chat_mode=chat_mode,
             model_override=model_override,
             fallback_models=fallback_models,
@@ -738,14 +752,17 @@ def orchestrator_analyze_uploads():
 
 
 @app.route('/api/clear_history', methods=['POST'])
+@require_auth
 def clear_history():
     """Clear conversation history for a user"""
     try:
         data = request.json or {}
-        user_id = data.get('user_id', 'default')
-        
-        llm.clear_history(user_id)
-        
+        chat_id = (data.get('user_id') or '').strip() or request.user_id
+        if not validate_chat_ownership(chat_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
+
+        llm.clear_history(chat_id)
+
         return jsonify({'message': 'History cleared'})
         
     except Exception as e:
@@ -1717,6 +1734,7 @@ def generate_speech():
 
 
 @app.route('/api/memory/<user_id>', methods=['GET'])
+@require_auth
 def get_memory(user_id):
     """Debug endpoint: inspect persisted conversation memory for a user.
 
@@ -1724,6 +1742,8 @@ def get_memory(user_id):
     where N is based on CONVERSATION_HISTORY_SIZE.
     """
     try:
+        if not validate_chat_ownership(user_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         history = memory_db.get_history(user_id, config.CONVERSATION_HISTORY_SIZE)
         return jsonify({
             'user_id': user_id,
@@ -1736,9 +1756,12 @@ def get_memory(user_id):
 
 
 @app.route('/api/memory/profile/<user_id>', methods=['GET'])
+@require_auth
 def get_memory_profile(user_id):
     """Debug endpoint: inspect persisted personal profile memory for a user."""
     try:
+        if not validate_chat_ownership(user_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         facts = memory_db.get_user_profile_facts(user_id)
         summary = memory_db.get_user_profile_summary(user_id)
         return jsonify({
@@ -1753,6 +1776,7 @@ def get_memory_profile(user_id):
 
 
 @app.route('/api/chat_stream', methods=['POST'])
+@require_auth
 def chat_stream():
     """
     Streaming chat endpoint
@@ -1763,10 +1787,12 @@ def chat_stream():
         data = request.json
         if not data or 'message' not in data:
             return jsonify({'error': 'Message is required'}), 400
-        
+
         user_message = data.get('message', '').strip()
         language = _normalize_language_code(data.get('language', 'en'))
-        user_id = data.get('user_id', 'default')
+        chat_id = (data.get('user_id') or '').strip() or request.user_id
+        if not validate_chat_ownership(chat_id, request.user_id):
+            return jsonify({'error': 'Unauthorized: chat not owned by user'}), 403
         chat_mode = data.get('chat_mode', 'general')
         model_override = data.get('model_override')
         fallback_models = data.get('fallback_models')
@@ -1782,7 +1808,7 @@ def chat_stream():
             result = orchestrator.handle_query(
                 user_message,
                 language=language,
-                user_id=user_id,
+                user_id=chat_id,
                 chat_mode=chat_mode,
                 model_override=model_override,
                 fallback_models=fallback_models,

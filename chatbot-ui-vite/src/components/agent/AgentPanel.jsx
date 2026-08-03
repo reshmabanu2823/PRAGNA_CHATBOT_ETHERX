@@ -247,6 +247,7 @@ export default function AgentPanel() {
   const [events, setEvents] = useState([])
   const [isRunning, setIsRunning] = useState(false)
   const [contextFiles, setContextFiles] = useState('')
+  const [contextFilesOpen, setContextFilesOpen] = useState(false)
   const controllerRef = useRef(null)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
@@ -414,31 +415,42 @@ export default function AgentPanel() {
         padding: '14px 16px',
         borderTop: '1px solid var(--pragna-border)',
       }}>
-        {/* Context files input (collapsible) */}
-        <details style={{ marginBottom: 8 }}>
-          <summary style={{ color: 'var(--pragna-text-muted)', fontSize: 12, cursor: 'pointer', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* Context files input (collapsible) - explicit state rather than
+            native <details>/<summary> so open/closed rendering can't drift
+            from the toggle's visual state (native details relies on the
+            browser correctly stripping closed content from layout, which
+            proved unreliable and was overlapping the task textarea below it). */}
+        <div style={{ marginBottom: 8 }}>
+          <button
+            type="button"
+            onClick={() => setContextFilesOpen(v => !v)}
+            style={{ color: 'var(--pragna-text-muted)', fontSize: 12, cursor: 'pointer', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', padding: 0 }}
+          >
             <Paperclip size={13} /> Context files (optional — paths to pre-load)
-          </summary>
-          <textarea
-            value={contextFiles}
-            onChange={e => setContextFiles(e.target.value)}
-            placeholder="One file path per line&#10;e.g. backend/app.py"
-            rows={2}
-            style={{
-              width: '100%',
-              background: 'var(--pragna-surface)',
-              border: '1px solid var(--pragna-border)',
-              borderRadius: 8,
-              padding: '8px 10px',
-              color: 'var(--pragna-text-muted)',
-              fontSize: 12,
-              fontFamily: 'monospace',
-              resize: 'vertical',
-              boxSizing: 'border-box',
-              marginTop: 4,
-            }}
-          />
-        </details>
+            {contextFilesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          {contextFilesOpen && (
+            <textarea
+              value={contextFiles}
+              onChange={e => setContextFiles(e.target.value)}
+              placeholder="One file path per line&#10;e.g. backend/app.py"
+              rows={2}
+              style={{
+                width: '100%',
+                background: 'var(--pragna-surface)',
+                border: '1px solid var(--pragna-border)',
+                borderRadius: 8,
+                padding: '8px 10px',
+                color: 'var(--pragna-text-muted)',
+                fontSize: 12,
+                fontFamily: 'monospace',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+                marginTop: 4,
+              }}
+            />
+          )}
+        </div>
 
         <div style={{
           display: 'flex',
@@ -554,8 +566,6 @@ export default function AgentPanel() {
           0%, 100% { opacity: 0.3; transform: scale(0.8); }
           50% { opacity: 1; transform: scale(1.2); }
         }
-        details > summary { list-style: none; }
-        details > summary::-webkit-details-marker { display: none; }
       `}</style>
     </div>
   )
