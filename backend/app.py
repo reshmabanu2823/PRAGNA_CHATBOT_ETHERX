@@ -27,6 +27,7 @@ from services.llm import list_available_models
 from services import vision_service
 from auth import auth_service, require_auth
 from database import db
+from psycopg.rows import dict_row
 from chat_management_api import chat_management_bp
 from services import code_agent
 
@@ -541,6 +542,8 @@ PUBLIC_ENDPOINTS = [
     '/api/summarize',
     '/api/auth/login',
     '/api/auth/register',
+    '/api/auth/register/request-otp',
+    '/api/auth/register/verify-otp',
 ]
 
 @app.before_request
@@ -826,12 +829,25 @@ def health_check():
     
     # Check 3: Database
     try:
+        # try/finally is load-bearing, not style: without it a failing
+        # SELECT 1 skips release_connection() and leaks that connection out
+        # of the pool permanently. This is the most-hit endpoint (Render's
+        # own monitoring polls it), so a transient DB blip used to leak one
+        # connection per poll until the pool hit max_size and every request
+        # in the app started blocking for the full pool timeout instead.
         conn = db.get_connection()
-        conn.execute('SELECT 1')
-        conn.close()
-        health_status['systems']['database'] = {'status': 'healthy'}
+        try:
+            conn.execute('SELECT 1')
+        finally:
+            db.release_connection(conn)
+        health_status['systems']['database'] = {'status': 'healthy', 'pool': db.get_pool_stats()}
     except Exception as e:
-        health_status['systems']['database'] = {'status': 'error', 'error': str(e)[:100]}
+        # Include pool stats on failure too - "couldn't get a connection"
+        # alone can't distinguish an exhausted pool from an unreachable
+        # database, and those need completely different fixes.
+        health_status['systems']['database'] = {
+            'status': 'error', 'error': str(e)[:100], 'pool': db.get_pool_stats(),
+        }
         health_status['errors'].append(f'❌ Database error: {str(e)[:100]}')
     
     # Check 4: Cache
@@ -1061,22 +1077,26 @@ def get_shared_chat(token):
     """
     try:
         conn = db.get_connection()
-        c = conn.cursor()
-        c.execute(
-            'SELECT id, title, created_at FROM conversations WHERE share_token = ?',
-            (token,)
-        )
-        convo = c.fetchone()
-        if not convo:
-            conn.close()
-            return jsonify({'error': 'Shared chat not found'}), 404
+        try:
+            c = conn.cursor(row_factory=dict_row)
+            c.execute(
+                'SELECT id, title, created_at FROM conversations WHERE share_token = %s',
+                (token,)
+            )
+            convo = c.fetchone()
+            if not convo:
+                return jsonify({'error': 'Shared chat not found'}), 404
 
-        c.execute(
-            'SELECT sender, text, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC, rowid ASC',
-            (convo['id'],)
-        )
-        messages = [dict(row) for row in c.fetchall()]
-        conn.close()
+            # No rowid tiebreaker (Postgres has no implicit rowid column
+            # the way SQLite does) - matches database.py's own
+            # get_messages(), which has only ever ordered by timestamp.
+            c.execute(
+                'SELECT sender, text, timestamp FROM messages WHERE conversation_id = %s ORDER BY timestamp ASC',
+                (convo['id'],)
+            )
+            messages = [dict(row) for row in c.fetchall()]
+        finally:
+            db.release_connection(conn)
 
         return jsonify({
             'status': 'success',
@@ -2000,6 +2020,64 @@ def register():
     except Exception as e:
         logger.error(f"Registration error: {e}")
         return jsonify({'error': 'Registration failed'}), 500
+
+@app.route('/api/auth/register/request-otp', methods=['POST'])
+def request_registration_otp():
+    """Validate a signup attempt and email a 6-digit verification code.
+    The account isn't created until verify-otp confirms the code."""
+    try:
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+
+        if not username or not email or not password:
+            return jsonify({'error': 'All fields required'}), 400
+
+        error = auth_service.request_registration_otp(username, email, password)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({'message': 'Verification code sent'}), 200
+
+    except Exception as e:
+        # detail/detail_type are included deliberately. This path has been
+        # failing in production while the generic message above hid what was
+        # actually raised, which meant debugging it from outside the box was
+        # guesswork. The underlying exceptions here are infrastructure
+        # errors (pool/timeout/driver), not anything user-supplied, so
+        # surfacing them leaks no user data.
+        logger.exception("Request registration OTP error")
+        return jsonify({
+            'error': 'Failed to send verification code',
+            'detail': str(e)[:300],
+            'detail_type': type(e).__name__,
+        }), 500
+
+@app.route('/api/auth/register/verify-otp', methods=['POST'])
+def verify_registration_otp():
+    """Complete registration by checking the emailed code."""
+    try:
+        data = request.json or {}
+        email = data.get('email', '').strip()
+        code = data.get('code', '').strip()
+
+        if not email or not code:
+            return jsonify({'error': 'email and code are required'}), 400
+
+        user_id, token, error = auth_service.verify_registration_otp(email, code)
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({
+            'user_id': user_id,
+            'token': token,
+            'message': 'Registration successful'
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Verify registration OTP error: {e}")
+        return jsonify({'error': 'Verification failed'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():

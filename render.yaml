@@ -64,6 +64,23 @@ services:
         sync: false # REQUIRED: set a long random value in Render dashboard.
                      # If left unset, auth tokens are signed with the
                      # publicly-known default in config.py - never leave unset.
+      - key: DATABASE_URL
+        sync: false # REQUIRED - the app will not start without this
+                     # (database.py raises at boot if unset, deliberately -
+                     # see its module docstring). Supabase Postgres
+                     # connection string, SESSION POOLER mode specifically -
+                     # from Supabase dashboard -> Connect, host is
+                     # <region>.pooler.supabase.com, port 5432, username
+                     # postgres.<project-ref>. Do NOT use Transaction Pooler
+                     # mode (also port 6543 on the same host) - that
+                     # combination with this app's own connection pool
+                     # caused intermittent "SSL SYSCALL error: EOF detected"
+                     # in production once a pooled connection sat idle long
+                     # enough for PgBouncer to recycle it underneath us. Do
+                     # NOT use the direct connection (host db.<ref>.supabase.co,
+                     # also port 5432) either - its connection limit is too
+                     # small once this service has more than a couple of
+                     # gunicorn workers each holding a pool open.
       - key: CORS_ALLOWED_ORIGINS
         sync: false # Set to the etherx-frontend URL once known (e.g.
                      # https://etherx-frontend.onrender.com). Defaults to "*"
@@ -74,16 +91,63 @@ services:
                      # .onrender.com). Used to build the reset link sent by
                      # email - defaults to localhost otherwise, which breaks
                      # for anyone except you on your own dev machine.
-      - key: RESEND_API_KEY
+      - key: SMTP_USERNAME
         sync: false # REQUIRED for password-reset emails to actually send.
-                     # Free key from resend.com - without it, reset tokens
+                     # SMTP login - for Gmail the full address, for SendGrid
+                     # the literal string "apikey". Without it, reset tokens
                      # still get created but no email goes out (logged as a
                      # warning server-side, request still "succeeds").
-      - key: RESEND_FROM_EMAIL
-        sync: false # Optional - defaults to Resend's shared sandbox sender
-                     # (onboarding@resend.dev), which works with no domain
-                     # setup. Set to e.g. "Pragna <noreply@yourdomain.com>"
-                     # once you've verified a domain in Resend.
+      - key: SMTP_PASSWORD
+        sync: false # REQUIRED alongside SMTP_USERNAME. For Gmail this is a
+                     # 16-character App Password from
+                     # myaccount.google.com/apppasswords (needs 2-Step
+                     # Verification on first) - the normal account password
+                     # will not authenticate. For other providers, their
+                     # SMTP key.
+      - key: SMTP_HOST
+        sync: false # Optional - defaults to smtp.gmail.com. See config.py
+                     # for the host/port table of common providers.
+      - key: SMTP_PORT
+        sync: false # Optional - defaults to 465 (implicit TLS). Use 587 for
+                     # Brevo/SendGrid/Mailgun, which upgrade via STARTTLS.
+      - key: SMTP_FROM_EMAIL
+        sync: false # Optional - defaults to SMTP_USERNAME, which is correct
+                     # for Gmail. Set this when the provider authenticates
+                     # with an API credential but sends from a separate
+                     # verified sender address (Brevo, SendGrid).
+      - key: SMTP_FROM_NAME
+        sync: false # Optional - display name on outgoing mail, defaults to
+                     # "Pragna-1 A".
+      - key: EMAILJS_SERVICE_ID
+        sync: false # Optional - if set, email_service.py sends via EmailJS
+                     # instead of SMTP (SMTP_* above is then unused). From
+                     # the EmailJS dashboard: Email Services -> your service.
+      - key: EMAILJS_TEMPLATE_ID
+        sync: false # Fallback template, used only if EMAILJS_TEMPLATE_ID_OTP
+                     # or _RESET below is left unset. Setting only this one
+                     # means BOTH email types silently use the same template
+                     # (e.g. signup OTPs going out as "Reset your password"
+                     # emails with an empty link) - set the two below
+                     # explicitly instead, this exists mainly as a fallback.
+      - key: EMAILJS_TEMPLATE_ID_OTP
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Template for the
+                     # signup verification code - must accept
+                     # to_email/passcode/time (see
+                     # services/email_service.py send_otp_email for the full
+                     # variable contract).
+      - key: EMAILJS_TEMPLATE_ID_RESET
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Template for the
+                     # password-reset link - must accept to_email/reset_link
+                     # (see services/email_service.py send_password_reset_email
+                     # for the full variable contract).
+      - key: EMAILJS_PUBLIC_KEY
+        sync: false # REQUIRED alongside EMAILJS_SERVICE_ID. Account ->
+                     # General in the EmailJS dashboard.
+      - key: EMAILJS_PRIVATE_KEY
+        sync: false # Optional but recommended for server-side sends.
+                     # Account -> API Keys - also enable "Allow non-browser
+                     # requests using the SDK" there, or EmailJS rejects
+                     # calls with no browser Origin header.
       - key: RAG_ENABLED
         value: "False" # REQUIRED on Render's free tier (~512MB RAM): True
                         # eagerly loads sentence-transformers/torch/faiss in

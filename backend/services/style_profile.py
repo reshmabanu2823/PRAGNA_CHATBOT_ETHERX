@@ -137,12 +137,12 @@ def style_system_message(profile: Dict[str, str], language: str = 'en', chat_mod
     # Mode-specific prefix instructions
     mode_prefixes = {
         "general": "",
-        "explain_concepts": "START your response with: '📚 **Explanation Mode**: Breaking down the concept into clear, simple parts:'. ",
-        "generate_ideas": "START your response with: '💡 **Creative Ideas Mode**: Brainstorming interesting ideas:'. ",
-        "write_content": "START your response with: '✍️ **Content Writing Mode**: Creating engaging content:'. ",
-        "code_assistance": "START your response with: '💻 **Code Mode**: Providing code examples:'. ",
-        "ask_questions": "START your response with: '❓ **Question Mode**: Asking probing questions:'. ",
-        "creative_writing": "START your response with: '✍️ **Creative Writing Mode**: Crafting a narrative:'. ",
+        "explain_concepts": "START your response with: '**Explanation Mode**: Breaking down the concept into clear, simple parts:'. ",
+        "generate_ideas": "START your response with: '**Creative Ideas Mode**: Brainstorming interesting ideas:'. ",
+        "write_content": "START your response with: '**Content Writing Mode**: Creating engaging content:'. ",
+        "code_assistance": "START your response with: '**Code Mode**: Providing code examples:'. ",
+        "ask_questions": "START your response with: '**Question Mode**: Asking probing questions:'. ",
+        "creative_writing": "START your response with: '**Creative Writing Mode**: Crafting a narrative:'. ",
     }
     mode_prefix_instruction = mode_prefixes.get(chat_mode, "")
     import sys
@@ -154,8 +154,8 @@ def style_system_message(profile: Dict[str, str], language: str = 'en', chat_mod
     if tone == "casual":
         tone_instructions = (
             "Keep it conversational and fun. Use natural speech patterns, abbreviations, "
-            "and casual language. Be witty and relatable. Feel free to use emojis sparingly "
-            "when appropriate. Sound like a real friend, not a bot."
+            "and casual language. Be witty and relatable. Do not use emojis. "
+            "Sound like a real friend, not a bot."
         )
     elif tone == "formal":
         tone_instructions = (
@@ -183,7 +183,7 @@ def style_system_message(profile: Dict[str, str], language: str = 'en', chat_mod
         f"General Guidelines:\n"
         f"- Be authentic and personality-driven\n"
         f"- Adapt your response style to mirror the user's energy\n"
-        f"- Be creative and add flair when appropriate\n"
+        f"- Be creative and add flair when appropriate, but never through emojis - do not use emojis anywhere in your response\n"
         f"- Respect safety and clarity above all else\n"
         f"- Don't mimic harmful or disrespectful language\n"
         f"- Be helpful, honest, and genuine"

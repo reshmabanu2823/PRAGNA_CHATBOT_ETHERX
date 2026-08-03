@@ -30,12 +30,63 @@ CORS_ALLOWED_ORIGINS = (
 # production so reset emails point at the real deployed frontend.
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5180').rstrip('/')
 
-# Resend (https://resend.com) for transactional email - password reset, etc.
-# Free tier, no SMTP setup needed. RESEND_FROM_EMAIL defaults to Resend's
-# shared sandbox sender, which works with no domain verification; set your
-# own verified sender once you've added a domain in Resend.
-RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
-RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Pragna-1 A <onboarding@resend.dev>')
+# SMTP for transactional email (password reset, etc). Provider-agnostic:
+# any SMTP host works, so switching providers is an env change, not a code
+# change. Port decides the encryption mode - 465 implicit TLS, anything
+# else (typically 587) STARTTLS.
+#
+#   Gmail     smtp.gmail.com       465   user = full address, pass = App
+#                                        Password from
+#                                        myaccount.google.com/apppasswords
+#                                        (needs 2-Step Verification on;
+#                                        the normal password is rejected)
+#   Brevo     smtp-relay.brevo.com 587   user = login, pass = SMTP key
+#   SendGrid  smtp.sendgrid.net    587   user = literally "apikey"
+#   Mailgun   smtp.mailgun.org     587
+#
+# SMTP_FROM_EMAIL is separate from SMTP_USERNAME on purpose: providers like
+# Brevo/SendGrid authenticate with an API credential but send from a
+# verified sender address, and those are not the same string. Defaults to
+# SMTP_USERNAME, which is the right behaviour for Gmail.
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 465))
+SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '') or SMTP_USERNAME
+SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'Pragna-1 A')
+
+# EmailJS (https://www.emailjs.com) - REST API transport, used instead of
+# SMTP when EMAILJS_SERVICE_ID is set. Needs, from the EmailJS dashboard:
+#   - Email Services -> your connected service -> EMAILJS_SERVICE_ID
+#   - Account -> General -> EMAILJS_PUBLIC_KEY
+#   - Account -> API Keys -> EMAILJS_PRIVATE_KEY, AND toggle on "Allow
+#     non-browser requests using the SDK" - without that, EmailJS rejects
+#     server-to-server calls that don't carry a browser Origin header.
+#
+# Two different templates are used for two different emails - a signup OTP
+# code and a password-reset link - so there are two template IDs.
+# EMAILJS_TEMPLATE_ID is the fallback used if either specific one is unset
+# (fine if you're only using one of the two flows). See
+# services/email_service.py for the exact template_params contract.
+EMAILJS_SERVICE_ID = os.getenv('EMAILJS_SERVICE_ID', '')
+EMAILJS_TEMPLATE_ID = os.getenv('EMAILJS_TEMPLATE_ID', '')
+_emailjs_template_id_otp_env = os.getenv('EMAILJS_TEMPLATE_ID_OTP', '')
+_emailjs_template_id_reset_env = os.getenv('EMAILJS_TEMPLATE_ID_RESET', '')
+EMAILJS_TEMPLATE_ID_OTP = _emailjs_template_id_otp_env or EMAILJS_TEMPLATE_ID
+EMAILJS_TEMPLATE_ID_RESET = _emailjs_template_id_reset_env or EMAILJS_TEMPLATE_ID
+
+if EMAILJS_SERVICE_ID and not (_emailjs_template_id_otp_env and _emailjs_template_id_reset_env):
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        'EMAILJS_TEMPLATE_ID_OTP and/or EMAILJS_TEMPLATE_ID_RESET is unset - '
+        'both are falling back to the same EMAILJS_TEMPLATE_ID (%r), so signup '
+        'OTPs and password-reset links will use whichever ONE template that '
+        'is, with the wrong variables silently rendering blank. Set both '
+        'explicitly to their own template IDs.', EMAILJS_TEMPLATE_ID
+    )
+
+EMAILJS_PUBLIC_KEY = os.getenv('EMAILJS_PUBLIC_KEY', '')
+EMAILJS_PRIVATE_KEY = os.getenv('EMAILJS_PRIVATE_KEY', '')
 
 # Per-client-IP rate limit for the unauthenticated AI generation endpoints
 # (/api/images/generate, /api/documents/generate) - each call triggers an LLM
@@ -499,8 +550,18 @@ JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DAYS = int(os.getenv('JWT_EXPIRATION_DAYS', 7))
 
-# Database Configuration
-DATABASE_URL = 'sqlite:///data/chatbot.db'
+# Database Configuration - Postgres (Supabase). Use the Session Pooler
+# connection string (port 5432), NOT the Transaction Pooler (port 6543) and
+# NOT the direct connection. Transaction mode isn't meant to sit under an
+# external connection pool (database.py keeps its own psycopg_pool) -
+# that combination surfaced in production as intermittent
+# "SSL SYSCALL error: EOF detected" once a pooled connection sat idle long
+# enough for PgBouncer to recycle the backend connection under it. The
+# direct connection has too small a limit for multiple gunicorn workers
+# each opening a pool. No SQLite fallback: the previous SQLite-on-local-
+# disk setup silently lost all data on every Render deploy/restart, since
+# the container filesystem isn't persistent.
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 DATABASE_ECHO = False
 
 # API Cost Tracking

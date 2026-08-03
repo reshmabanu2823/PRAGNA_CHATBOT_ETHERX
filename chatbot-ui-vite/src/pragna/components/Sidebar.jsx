@@ -367,7 +367,7 @@ ${turns}
     <aside style={{ width: '340px', flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--pragna-surface)', borderRight: '1px solid var(--pragna-border)', backdropFilter: 'blur(8px)', height: '100%' }}>
       
       {/* Wordmark logo */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px 16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px 16px 20px', flexShrink: 0 }}>
         <img src={pragnaLogo} alt="Pragna I-A" style={{ height: '150px', width: '300px', objectFit: 'cover' }} />
         {!onClose && (
           <button
@@ -381,9 +381,8 @@ ${turns}
           </button>
         )}
       </div>
-
-      {/* New chat button */}
-      <div style={{ padding: '6px 16px 14px 16px' }}>
+      {/* New chat button (Sticky, non-scrollable) */}
+      <div style={{ padding: '6px 16px 14px 16px', flexShrink: 0 }}>
         <button
           onClick={onNewChat}
           style={{
@@ -413,344 +412,112 @@ ${turns}
         </button>
       </div>
 
-      {/* Nav links */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px', padding: '0 12px' }}>
-        {navItemsList.map((nav) => {
-          const active = activeView === nav.id
-          return (
-            <button
-              key={nav.id}
-              onClick={() => handleChangeView(nav.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '13px',
-                width: '100%',
-                padding: '11px 14px',
-                borderRadius: '11px',
-                border: active ? '1px solid rgba(212,175,55,0.30)' : '1px solid transparent',
-                background: active ? 'linear-gradient(135deg, rgba(212,175,55,0.14), rgba(184,134,11,0.07))' : 'transparent',
-                color: active ? 'var(--pragna-gold-soft)' : 'var(--pragna-text-soft)',
-                fontSize: '14.5px',
-                fontWeight: active ? 650 : 500,
-                letterSpacing: '0.2px',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'all 0.15s ease',
-              }}
-              className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
-            >
-              <span style={{ display: 'flex', width: '20px', height: '20px', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                {navIcon(nav.id)}
-              </span>
-              {nav.label}
-            </button>
-          )
-        })}
-      </nav>
-
-      {/* Recents */}
+      {/* Unified Scrollable body containing nav links and chat list */}
       <div
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px 12px 12px 12px',
+          overflowX: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          gap: '3px',
           minHeight: 0,
         }}
+        className="sidebar-scroll-body"
       >
-        <div style={{ padding: '0 10px 10px 10px', position: 'relative' }}>
-          <input
-            ref={sidebarSearchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search chats..."
-            style={{
-              width: '100%',
-              padding: '7px 44px 7px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--pragna-border)',
-              background: 'var(--pragna-surface-2)',
-              color: 'var(--pragna-text)',
-              fontSize: '13px',
-            }}
-            className="focus-ring"
-          />
-          <span
-            title="Open command palette (jump to any chat or run an action)"
-            style={{
-              position: 'absolute',
-              right: '18px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: '10.5px',
-              fontFamily: 'monospace',
-              color: 'var(--pragna-text-muted)',
-              background: 'var(--pragna-surface)',
-              border: '1px solid var(--pragna-border)',
-              borderRadius: '5px',
-              padding: '2px 6px',
-              pointerEvents: 'none',
-            }}
-          >
-            ⌘K
-          </span>
-        </div>
 
-        {/* New Folder */}
-        <div style={{ padding: '0 10px 8px 10px' }}>
-          {newFolderDialogOpen ? (
-            <input
-              autoFocus
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="Folder name"
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                border: '1px solid var(--pragna-border)',
-                borderRadius: '8px',
-                fontSize: '13px',
-                background: 'var(--pragna-surface-2)',
-                color: 'var(--pragna-text)',
-              }}
-              onBlur={() => {
-                if (newFolderName.trim()) createFolder(newFolderName)
-                setNewFolderName('')
-                setNewFolderDialogOpen(false)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newFolderName.trim()) {
-                  createFolder(newFolderName)
-                  setNewFolderName('')
-                  setNewFolderDialogOpen(false)
-                } else if (e.key === 'Escape') {
-                  setNewFolderName('')
-                  setNewFolderDialogOpen(false)
-                }
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setNewFolderDialogOpen(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '7px 10px',
-                borderRadius: '8px',
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--pragna-text-muted)',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                width: '100%',
-                textAlign: 'left',
-              }}
-              className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
-            >
-              <FolderPlus size={14} />
-              <span>New Folder</span>
-            </button>
-          )}
-        </div>
+        {/* Nav links */}
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px', padding: '0 12px', flexShrink: 0, marginBottom: '8px' }}>
+          {navItemsList.map((nav) => {
+            const active = activeView === nav.id
+            return (
+              <button
+                key={nav.id}
+                onClick={() => handleChangeView(nav.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '13px',
+                  width: '100%',
+                  padding: '11px 14px',
+                  borderRadius: '11px',
+                  border: active ? '1px solid rgba(212,175,55,0.30)' : '1px solid transparent',
+                  background: active ? 'linear-gradient(135deg, rgba(212,175,55,0.14), rgba(184,134,11,0.07))' : 'transparent',
+                  color: active ? 'var(--pragna-gold-soft)' : 'var(--pragna-text-soft)',
+                  fontSize: '14.5px',
+                  fontWeight: active ? 650 : 500,
+                  letterSpacing: '0.2px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                }}
+                className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
+              >
+                <span style={{ display: 'flex', width: '20px', height: '20px', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {navIcon(nav.id)}
+                </span>
+                {nav.label}
+              </button>
+            )
+          })}
+        </nav>
 
-        {/* Folder sections */}
-        {folders.map((folder) => {
-          const folderChats = filteredChats.filter((c) => c.folderId === folder.id)
-          return (
-            <div
-              key={folder.id}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault()
-                const chatId = e.dataTransfer.getData('text/plain')
-                if (chatId) moveChatToFolder(chatId, folder.id)
-              }}
-              style={{ marginBottom: '6px' }}
-            >
-              {folderRenameId === folder.id ? (
-                <div style={{ padding: '6px 14px' }}>
-                  <input
-                    autoFocus
-                    type="text"
-                    value={folderRenameName}
-                    onChange={(e) => setFolderRenameName(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: '1px solid var(--pragna-border)',
-                      borderRadius: '8px',
-                      fontSize: '13px',
-                      background: 'var(--pragna-surface-2)',
-                      color: 'var(--pragna-text)',
-                    }}
-                    onBlur={() => {
-                      if (folderRenameName.trim()) renameFolder(folder.id, folderRenameName)
-                      setFolderRenameId(null)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && folderRenameName.trim()) {
-                        renameFolder(folder.id, folderRenameName)
-                        setFolderRenameId(null)
-                      } else if (e.key === 'Escape') {
-                        setFolderRenameId(null)
-                      }
-                    }}
-                  />
-                </div>
-              ) : (
-                <div
-                  onClick={() => toggleSection(folder.id)}
-                  title={collapsedSections.has(folder.id) ? 'Expand folder' : 'Minimize folder'}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', position: 'relative', cursor: 'pointer', borderRadius: '6px' }}
-                  className="hover:bg-[var(--pragna-surface-2)]"
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', fontWeight: 700, letterSpacing: '1px', color: 'var(--pragna-text-muted)' }}>
-                    <ChevronDown
-                      size={12}
-                      style={{
-                        transform: collapsedSections.has(folder.id) ? 'rotate(-90deg)' : 'rotate(0deg)',
-                        transition: 'transform 0.15s ease',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Folder size={13} />
-                    <span>{folder.name.toUpperCase()}</span>
-                    <span style={{ color: '#6b6152' }}>({folderChats.length})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setFolderMenuOpenId(folderMenuOpenId === folder.id ? null : folder.id)
-                    }}
-                    style={{ padding: '2px', borderRadius: '4px', border: 'none', background: 'transparent', color: 'var(--pragna-text-muted)', cursor: 'pointer', display: 'flex' }}
-                    aria-label={`Menu for ${folder.name}`}
-                  >
-                    <MoreVertical size={13} />
-                  </button>
-                  {folderMenuOpenId === folder.id && (
-                    <>
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={(e) => { e.stopPropagation(); setFolderMenuOpenId(null) }} />
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: 'calc(100% + 2px)',
-                          width: '150px',
-                          zIndex: 100,
-                          padding: '4px',
-                          borderRadius: '10px',
-                          background: 'var(--pragna-surface)',
-                          border: '1px solid rgba(212,175,55,0.22)',
-                          boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
-                        }}
-                      >
-                        <button
-                          onClick={() => {
-                            setFolderRenameId(folder.id)
-                            setFolderRenameName(folder.name)
-                            setFolderMenuOpenId(null)
-                          }}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: '#d8cbb0', fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
-                          className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
-                        >
-                          <Edit2 size={14} />
-                          <span>Rename</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Delete folder "${folder.name}"? Chats inside will be moved back to Recents.`)) {
-                              deleteFolder(folder.id)
-                            }
-                            setFolderMenuOpenId(null)
-                          }}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: '#d98b7f', fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
-                          className="hover:bg-[#301614]"
-                        >
-                          <Trash2 size={14} />
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: collapsedSections.has(folder.id) ? 'none' : 'flex', flexDirection: 'column', gap: '3px' }}>
-                {folderChats.map((chat) => (
-                  renameDialogId === chat.id ? null : (
-                    <RecentItem
-                      key={chat.id}
-                      id={chat.id}
-                      title={chat.title || 'New chat'}
-                      active={chat.id === activeChatId}
-                      isPinned={pinnedChats.has(chat.id)}
-                      folders={folders}
-                      currentFolderId={chat.folderId || null}
-                      onMoveToFolder={(folderId) => moveChatToFolder(chat.id, folderId)}
-                      onClick={() => {
-                        onSelectRecent(chat.id)
-                        handleChangeView('chats')
-                      }}
-                      onDelete={() => handleDelete(chat.id)}
-                      onRename={() => handleRename(chat.id, chat.title || 'New chat')}
-                      onShare={() => handleShare(chat.id)}
-                      onExport={() => handleExport(chat.id)}
-                      onPdfExport={() => handlePdfExport(chat.id)}
-                      onDuplicate={() => handleDuplicate(chat.id)}
-                      onPinChat={() => handlePinChat(chat.id)}
-                      onArchive={() => handleArchive(chat.id)}
-                      onStartGroupChat={() => handleStartGroupChat(chat.id)}
-                    />
-                  )
-                ))}
-              </div>
-            </div>
-          )
-        })}
-
-        {/* Unfiled chats */}
+        {/* Recents list and Folders */}
         <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault()
-            const chatId = e.dataTransfer.getData('text/plain')
-            if (chatId) moveChatToFolder(chatId, null)
+          style={{
+            padding: '16px 12px 12px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '3px',
           }}
         >
-          <div
-            onClick={() => toggleSection('recents')}
-            title={collapsedSections.has('recents') ? 'Expand recents' : 'Minimize recents'}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, letterSpacing: '2px', color: 'var(--pragna-text-muted)', padding: '4px 14px', margin: '0 0 6px 0', cursor: 'pointer', borderRadius: '6px' }}
-            className="hover:bg-[var(--pragna-surface-2)]"
-          >
-            <ChevronDown
-              size={12}
+          <div style={{ padding: '0 10px 10px 10px', position: 'relative' }}>
+            <input
+              ref={sidebarSearchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats..."
               style={{
-                transform: collapsedSections.has('recents') ? 'rotate(-90deg)' : 'rotate(0deg)',
-                transition: 'transform 0.15s ease',
-                flexShrink: 0,
+                width: '100%',
+                padding: '7px 44px 7px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--pragna-border)',
+                background: 'var(--pragna-surface-2)',
+                color: 'var(--pragna-text)',
+                fontSize: '13px',
               }}
+              className="focus-ring"
             />
-            RECENTS
+            <span
+              title="Open command palette (jump to any chat or run an action)"
+              style={{
+                position: 'absolute',
+                right: '18px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '10.5px',
+                fontFamily: 'monospace',
+                color: 'var(--pragna-text-muted)',
+                background: 'var(--pragna-surface)',
+                border: '1px solid var(--pragna-border)',
+                borderRadius: '5px',
+                padding: '2px 6px',
+                pointerEvents: 'none',
+              }}
+            >
+              ⌘K
+            </span>
           </div>
 
-          {renameDialogId ? (
-            <div style={{ padding: '6px 14px' }}>
+          {/* New Folder */}
+          <div style={{ padding: '0 10px 8px 10px' }}>
+            {newFolderDialogOpen ? (
               <input
                 autoFocus
                 type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="Folder name"
                 style={{
                   width: '100%',
                   padding: '6px 10px',
@@ -761,55 +528,298 @@ ${turns}
                   color: 'var(--pragna-text)',
                 }}
                 onBlur={() => {
-                  if (newTitle) handleRenameConfirm(renameDialogId)
-                  setRenameDialogId(null)
+                  if (newFolderName.trim()) createFolder(newFolderName)
+                  setNewFolderName('')
+                  setNewFolderDialogOpen(false)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newTitle) {
-                    handleRenameConfirm(renameDialogId)
-                    setRenameDialogId(null)
+                  if (e.key === 'Enter' && newFolderName.trim()) {
+                    createFolder(newFolderName)
+                    setNewFolderName('')
+                    setNewFolderDialogOpen(false)
                   } else if (e.key === 'Escape') {
-                    setRenameDialogId(null)
+                    setNewFolderName('')
+                    setNewFolderDialogOpen(false)
                   }
                 }}
               />
-            </div>
-          ) : null}
+            ) : (
+              <button
+                type="button"
+                onClick={() => setNewFolderDialogOpen(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--pragna-text-muted)',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                }}
+                className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
+              >
+                <FolderPlus size={14} />
+                <span>New Folder</span>
+              </button>
+            )}
+          </div>
 
-          <div style={{ display: collapsedSections.has('recents') ? 'none' : 'flex', flexDirection: 'column', gap: '3px' }}>
-            {unfiledChats.map((chat) => (
-              renameDialogId === chat.id ? null : (
-                <RecentItem
-                  key={chat.id}
-                  id={chat.id}
-                  title={chat.title || 'New chat'}
-                  active={chat.id === activeChatId}
-                  isPinned={pinnedChats.has(chat.id)}
-                  folders={folders}
-                  currentFolderId={null}
-                  onMoveToFolder={(folderId) => moveChatToFolder(chat.id, folderId)}
-                  onClick={() => {
-                    onSelectRecent(chat.id)
-                    handleChangeView('chats')
+          {/* Folder sections */}
+          {folders.map((folder) => {
+            const folderChats = filteredChats.filter((c) => c.folderId === folder.id)
+            return (
+              <div
+                key={folder.id}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const chatId = e.dataTransfer.getData('text/plain')
+                  if (chatId) moveChatToFolder(chatId, folder.id)
+                }}
+                style={{ marginBottom: '6px' }}
+              >
+                {folderRenameId === folder.id ? (
+                  <div style={{ padding: '6px 14px' }}>
+                    <input
+                      autoFocus
+                      type="text"
+                      value={folderRenameName}
+                      onChange={(e) => setFolderRenameName(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        border: '1px solid var(--pragna-border)',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        background: 'var(--pragna-surface-2)',
+                        color: 'var(--pragna-text)',
+                      }}
+                      onBlur={() => {
+                        if (folderRenameName.trim()) renameFolder(folder.id, folderRenameName)
+                        setFolderRenameId(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && folderRenameName.trim()) {
+                          renameFolder(folder.id, folderRenameName)
+                          setFolderRenameId(null)
+                        } else if (e.key === 'Escape') {
+                          setFolderRenameId(null)
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => toggleSection(folder.id)}
+                    title={collapsedSections.has(folder.id) ? 'Expand folder' : 'Minimize folder'}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', position: 'relative', cursor: 'pointer', borderRadius: '6px' }}
+                    className="hover:bg-[var(--pragna-surface-2)]"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', fontWeight: 700, letterSpacing: '1px', color: 'var(--pragna-text-muted)' }}>
+                      <ChevronDown
+                        size={12}
+                        style={{
+                          transform: collapsedSections.has(folder.id) ? 'rotate(-90deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.15s ease',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Folder size={13} />
+                      <span>{folder.name.toUpperCase()}</span>
+                      <span style={{ color: '#6b6152' }}>({folderChats.length})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setFolderMenuOpenId(folderMenuOpenId === folder.id ? null : folder.id)
+                      }}
+                      style={{ padding: '2px', borderRadius: '4px', border: 'none', background: 'transparent', color: 'var(--pragna-text-muted)', cursor: 'pointer', display: 'flex' }}
+                      aria-label={`Menu for ${folder.name}`}
+                    >
+                      <MoreVertical size={13} />
+                    </button>
+                    {folderMenuOpenId === folder.id && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={(e) => { e.stopPropagation(); setFolderMenuOpenId(null) }} />
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            top: 'calc(100% + 2px)',
+                            width: '150px',
+                            zIndex: 100,
+                            padding: '4px',
+                            borderRadius: '10px',
+                            background: 'var(--pragna-surface)',
+                            border: '1px solid rgba(212,175,55,0.22)',
+                            boxShadow: '0 10px 24px rgba(0,0,0,0.5)',
+                          }}
+                        >
+                          <button
+                            onClick={() => {
+                              setFolderRenameId(folder.id)
+                              setFolderRenameName(folder.name)
+                              setFolderMenuOpenId(null)
+                            }}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: '#d8cbb0', fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
+                            className="hover:bg-[#1e1a10] hover:text-[var(--pragna-gold-soft)]"
+                          >
+                            <Edit2 size={14} />
+                            <span>Rename</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Delete folder "${folder.name}"? Chats inside will be moved back to Recents.`)) {
+                                deleteFolder(folder.id)
+                              }
+                              setFolderMenuOpenId(null)
+                            }}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: '#d98b7f', fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
+                            className="hover:bg-[#301614]"
+                          >
+                            <Trash2 size={14} />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: collapsedSections.has(folder.id) ? 'none' : 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {folderChats.map((chat) => (
+                    renameDialogId === chat.id ? null : (
+                      <RecentItem
+                        key={chat.id}
+                        id={chat.id}
+                        title={chat.title || 'New chat'}
+                        active={chat.id === activeChatId}
+                        isPinned={pinnedChats.has(chat.id)}
+                        folders={folders}
+                        currentFolderId={chat.folderId || null}
+                        onMoveToFolder={(folderId) => moveChatToFolder(chat.id, folderId)}
+                        onClick={() => {
+                          onSelectRecent(chat.id)
+                          handleChangeView('chats')
+                        }}
+                        onDelete={() => handleDelete(chat.id)}
+                        onRename={() => handleRename(chat.id, chat.title || 'New chat')}
+                        onShare={() => handleShare(chat.id)}
+                        onExport={() => handleExport(chat.id)}
+                        onPdfExport={() => handlePdfExport(chat.id)}
+                        onDuplicate={() => handleDuplicate(chat.id)}
+                        onPinChat={() => handlePinChat(chat.id)}
+                        onArchive={() => handleArchive(chat.id)}
+                        onStartGroupChat={() => handleStartGroupChat(chat.id)}
+                      />
+                    )
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Unfiled chats */}
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              const chatId = e.dataTransfer.getData('text/plain')
+              if (chatId) moveChatToFolder(chatId, null)
+            }}
+          >
+            <div
+              onClick={() => toggleSection('recents')}
+              title={collapsedSections.has('recents') ? 'Expand recents' : 'Minimize recents'}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, letterSpacing: '2px', color: 'var(--pragna-text-muted)', padding: '4px 14px', margin: '0 0 6px 0', cursor: 'pointer', borderRadius: '6px' }}
+              className="hover:bg-[var(--pragna-surface-2)]"
+            >
+              <ChevronDown
+                size={12}
+                style={{
+                  transform: collapsedSections.has('recents') ? 'rotate(-90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease',
+                  flexShrink: 0,
+                }}
+              />
+              RECENTS
+            </div>
+
+            {renameDialogId ? (
+              <div style={{ padding: '6px 14px' }}>
+                <input
+                  autoFocus
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    border: '1px solid var(--pragna-border)',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    background: 'var(--pragna-surface-2)',
+                    color: 'var(--pragna-text)',
                   }}
-                  onDelete={() => handleDelete(chat.id)}
-                  onRename={() => handleRename(chat.id, chat.title || 'New chat')}
-                  onShare={() => handleShare(chat.id)}
-                  onExport={() => handleExport(chat.id)}
-                  onPdfExport={() => handlePdfExport(chat.id)}
-                  onDuplicate={() => handleDuplicate(chat.id)}
-                  onPinChat={() => handlePinChat(chat.id)}
-                  onArchive={() => handleArchive(chat.id)}
-                  onStartGroupChat={() => handleStartGroupChat(chat.id)}
+                  onBlur={() => {
+                    if (newTitle) handleRenameConfirm(renameDialogId)
+                    setRenameDialogId(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTitle) {
+                      handleRenameConfirm(renameDialogId)
+                      setRenameDialogId(null)
+                    } else if (e.key === 'Escape') {
+                      setRenameDialogId(null)
+                    }
+                  }}
                 />
-              )
-            ))}
+              </div>
+            ) : null}
+
+            <div style={{ display: collapsedSections.has('recents') ? 'none' : 'flex', flexDirection: 'column', gap: '3px' }}>
+              {unfiledChats.map((chat) => (
+                renameDialogId === chat.id ? null : (
+                  <RecentItem
+                    key={chat.id}
+                    id={chat.id}
+                    title={chat.title || 'New chat'}
+                    active={chat.id === activeChatId}
+                    isPinned={pinnedChats.has(chat.id)}
+                    folders={folders}
+                    currentFolderId={null}
+                    onMoveToFolder={(folderId) => moveChatToFolder(chat.id, folderId)}
+                    onClick={() => {
+                      onSelectRecent(chat.id)
+                      handleChangeView('chats')
+                    }}
+                    onDelete={() => handleDelete(chat.id)}
+                    onRename={() => handleRename(chat.id, chat.title || 'New chat')}
+                    onShare={() => handleShare(chat.id)}
+                    onExport={() => handleExport(chat.id)}
+                    onPdfExport={() => handlePdfExport(chat.id)}
+                    onDuplicate={() => handleDuplicate(chat.id)}
+                    onPinChat={() => handlePinChat(chat.id)}
+                    onArchive={() => handleArchive(chat.id)}
+                    onStartGroupChat={() => handleStartGroupChat(chat.id)}
+                  />
+                )
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
       {/* User footer with menu popup overlay */}
-      <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         {userMenuOpen && (
           <>
             {/* Click-out backdrop */}

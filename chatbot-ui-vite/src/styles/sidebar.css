@@ -90,14 +90,30 @@
   color: #ffed4e;
 }
 
-/* ================================
-   Chat History
-================================ */
-.chat-history {
+.sidebar-scroll-body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  scrollbar-gutter: stable;
+}
+
+/* Custom Sleek Scrollbar */
+.sidebar-scroll-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll-body::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.15);
+  border-radius: 4px;
+}
+
+.sidebar-scroll-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 175, 55, 0.35);
 }
 
 /* ================================

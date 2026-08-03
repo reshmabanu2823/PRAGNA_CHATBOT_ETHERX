@@ -23,6 +23,21 @@ export default function Login({ onLoginSuccess }) {
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
+  // Registration is two steps: request-otp emails a code without creating
+  // the account, verify-otp creates it once the code checks out.
+  // pendingEmail/pendingUsername/pendingPassword hold what was submitted in
+  // step 1 - needed again in step 2 (verify-otp only takes email+code, but
+  // resending needs all three, and username/password are used to log the
+  // account in immediately after verify-otp is what actually creates it).
+  const [showOtpVerify, setShowOtpVerify] = useState(false);
+  const [pendingUsername, setPendingUsername] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingPassword, setPendingPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpResendLoading, setOtpResendLoading] = useState(false);
+  const [otpNotice, setOtpNotice] = useState('');
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
@@ -90,32 +105,91 @@ export default function Login({ onLoginSuccess }) {
     setLoading(true);
 
     try {
-      const data = await authAPI.register(trimmedUsername, trimmedEmail, password);
+      const data = await authAPI.requestRegistrationOtp(trimmedUsername, trimmedEmail, password);
 
       if (data.error) {
         setError(data.error || 'Registration failed');
         return;
       }
 
-      // Save token and user info
-      localStorage.setItem('authToken', data.token);
-      localStorage.setItem('userId', data.user_id);
-      const resolvedUsername = data.username || trimmedUsername;
-      const resolvedEmail = data.email || trimmedEmail;
-      localStorage.setItem('authUsername', resolvedUsername);
-      if (resolvedEmail) {
-        localStorage.setItem('authEmail', resolvedEmail);
-      }
-      
-      onLoginSuccess(data.user_id, data.token, {
-        username: resolvedUsername,
-        email: resolvedEmail,
-      });
+      // Account doesn't exist yet - request-otp only emailed a code.
+      // Hold onto what was submitted so verify (and resend) can use it.
+      setPendingUsername(trimmedUsername);
+      setPendingEmail(trimmedEmail);
+      setPendingPassword(password);
+      setOtpCode('');
+      setOtpNotice('');
+      setShowOtpVerify(true);
     } catch {
       setError('Network error. Try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    const trimmedCode = otpCode.trim();
+    if (!trimmedCode) {
+      setError('Enter the code from your email.');
+      return;
+    }
+
+    setOtpLoading(true);
+
+    try {
+      const data = await authAPI.verifyRegistrationOtp(pendingEmail, trimmedCode);
+
+      if (data.error) {
+        setError(data.error || 'Verification failed');
+        return;
+      }
+
+      // verify-otp is what actually creates the account, so this is the
+      // first point account+token exist - same login-completion steps as
+      // the old single-step register.
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('userId', data.user_id);
+      localStorage.setItem('authUsername', pendingUsername);
+      localStorage.setItem('authEmail', pendingEmail);
+
+      onLoginSuccess(data.user_id, data.token, {
+        username: pendingUsername,
+        email: pendingEmail,
+      });
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setError('');
+    setOtpNotice('');
+    setOtpResendLoading(true);
+    try {
+      const data = await authAPI.requestRegistrationOtp(pendingUsername, pendingEmail, pendingPassword);
+      if (data.error) {
+        setError(data.error || 'Failed to resend code');
+        return;
+      }
+      setOtpCode('');
+      setOtpNotice('A new code has been sent.');
+    } catch {
+      setError('Network error. Try again.');
+    } finally {
+      setOtpResendLoading(false);
+    }
+  };
+
+  const backToRegisterForm = () => {
+    setShowOtpVerify(false);
+    setOtpCode('');
+    setOtpNotice('');
+    setError('');
   };
 
   const handleForgotPassword = async (e) => {
@@ -149,7 +223,49 @@ export default function Login({ onLoginSuccess }) {
         <div className="auth-logo-wrapper">
           <img src={pragnaLogo} alt="Pragna Logo" className="auth-logo-centered" />
         </div>
-        {showForgotPassword ? (
+        {showOtpVerify ? (
+          <>
+            <h1>Verify your email</h1>
+
+            {error && <div className="auth-error">{error}</div>}
+
+            <form onSubmit={handleVerifyOtp}>
+              <p style={{ color: 'var(--pragna-text-muted, #a89878)', fontSize: '13.5px', lineHeight: 1.5, margin: '4px 0 16px 0' }}>
+                Enter the 6-digit code sent to <strong>{pendingEmail}</strong>. It expires in 10 minutes.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="6-digit code"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                required
+                autoFocus
+                maxLength={6}
+                disabled={otpLoading}
+              />
+              {otpNotice && (
+                <p style={{ color: 'var(--pragna-gold-soft, #e5c76b)', fontSize: '13px', margin: '-4px 0 4px 0' }}>
+                  {otpNotice}
+                </p>
+              )}
+              <button type="submit" disabled={otpLoading} className="auth-btn">
+                {otpLoading ? 'Verifying…' : 'Verify & Create Account'}
+              </button>
+            </form>
+
+            <p className="auth-toggle">
+              <button type="button" onClick={handleResendOtp} disabled={otpResendLoading || otpLoading}>
+                {otpResendLoading ? 'Resending…' : 'Resend code'}
+              </button>
+            </p>
+            <p className="auth-toggle">
+              <button type="button" onClick={backToRegisterForm} disabled={otpLoading}>
+                Back
+              </button>
+            </p>
+          </>
+        ) : showForgotPassword ? (
           <>
             <h1>Reset Password</h1>
 
@@ -253,7 +369,7 @@ export default function Login({ onLoginSuccess }) {
 
               <button type="submit" disabled={loading} className="auth-btn">
                 {loading
-                  ? (showRegister ? 'Creating account…' : 'Signing in…')
+                  ? (showRegister ? 'Sending code…' : 'Signing in…')
                   : (showRegister ? 'Register' : 'Login')}
               </button>
             </form>
