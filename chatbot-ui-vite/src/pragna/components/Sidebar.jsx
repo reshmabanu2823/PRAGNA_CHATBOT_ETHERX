@@ -306,6 +306,8 @@ ${turns}
         return icon(['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'])
       case 'explore':
         return icon(['M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z'], c({ cx: 12, cy: 12, r: 10 }))
+      case 'modes':
+        return icon(['M4 6h16', 'M4 12h16', 'M4 18h16'], [c({ cx: 8, cy: 6, r: 2, key: 'c1' }), c({ cx: 16, cy: 12, r: 2, key: 'c2' }), c({ cx: 10, cy: 18, r: 2, key: 'c3' })])
       case 'images':
         return icon(['M21 15l-5-5L5 21'], [r({ x: 3, y: 3, width: 18, height: 18, rx: 2, key: 'r' }), c({ cx: 8.5, cy: 8.5, r: 1.5, key: 'c' })])
       case 'projects':
@@ -346,6 +348,7 @@ ${turns}
 
   const navItemsList = [
     { id: 'chats', label: 'Chats' },
+    { id: 'modes', label: 'Modes' },
     { id: 'explore', label: 'Explore' },
     { id: 'images', label: 'Images' },
     { id: 'gpts', label: 'GPTs' },
