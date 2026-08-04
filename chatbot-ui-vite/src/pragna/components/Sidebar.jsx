@@ -348,7 +348,6 @@ ${turns}
     { id: 'chats', label: 'Chats' },
     { id: 'explore', label: 'Explore' },
     { id: 'images', label: 'Images' },
-    { id: 'projects', label: 'Projects' },
     { id: 'gpts', label: 'GPTs' },
   ]
 
