@@ -9,7 +9,6 @@ import GptModesPage from './pages/GptModesPage'
 import ComparePage from './pages/ComparePage'
 import ChatWindow from '../components/chat/ChatWindow'
 import InputBar from '../components/input/InputBar'
-import GlobalDashboard from '../components/dashboard/GlobalDashboard'
 import AgentPanel from '../components/agent/AgentPanel'
 import SettingsModal from './components/SettingsModal'
 import ShortcutsHelpModal from './components/ShortcutsHelpModal'
@@ -324,10 +323,6 @@ function App({ onLogout, userProfile }) {
           <InputBar />
         </>
       )
-    }
-
-    if (activeView === 'projects') {
-      return <GlobalDashboard />
     }
 
     if (activeView === 'gpts') {
