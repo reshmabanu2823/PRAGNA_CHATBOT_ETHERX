@@ -19,7 +19,6 @@ const NAV_VIEWS = [
   { id: 'images', label: 'Images' },
   { id: 'projects', label: 'Projects' },
   { id: 'gpts', label: 'GPTs' },
-  { id: 'compare', label: 'Compare' },
 ]
 
 // Global Ctrl/Cmd+K quick switcher: jump to any chat, or run an action

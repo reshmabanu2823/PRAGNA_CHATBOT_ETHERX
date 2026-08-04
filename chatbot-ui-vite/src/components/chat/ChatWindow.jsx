@@ -582,17 +582,6 @@ export default function ChatWindow() {
           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--pragna-accent)', boxShadow: '0 0 8px rgba(212,175,55,0.8)' }}></span>
           {modeLabel} mode
         </div>
-        <select
-          value={activePersonaId || ''}
-          onChange={(e) => setActivePersonaId(e.target.value || null)}
-          title="Persona"
-          style={{ padding: '5px 10px', borderRadius: '999px', border: '1px solid var(--pragna-border)', background: 'var(--pragna-surface-2)', color: '#d8cbb0', fontFamily: 'inherit', fontSize: '12px', cursor: 'pointer', minWidth: 0, maxWidth: isMobile ? '140px' : 'none', flexShrink: 1 }}
-        >
-          <option value="">No persona</option>
-          {personas.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
         <button
           onClick={handleSummarize}
           disabled={summarizing}
