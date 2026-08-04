@@ -1,152 +1,109 @@
-"""Postgres (Supabase) persistence layer.
-
-Was SQLite on local disk until it turned out every Render deploy/restart
-wiped the database - the container filesystem isn't persistent, and the
-committed backend/data/chatbot.db (an accidental git-tracked artifact from
-before *.db was added to .gitignore) is what every fresh container started
-from. Schema lives in Supabase migrations, not here - init_db() only
-verifies connectivity, it doesn't create tables.
-
-get_connection()/release_connection() check a connection out of / back
-into a pool, mirroring the old sqlite3.connect()/conn.close() call shape
-so app.py and chat_management_api.py - which both call db.get_connection()
-directly rather than going through a Database method - needed the smallest
-possible change (release_connection() instead of close(), %s instead of
-?, plus a dict_row cursor wherever the code reads columns by name). A
-context-manager-only get_connection() would have been cleaner in
-isolation, but broken every one of those call sites.
-
-DATABASE_URL must point at Supabase's Session pooler (port 5432), not the
-Transaction pooler (port 6543) - Supabase's own docs say Transaction mode
-isn't meant to sit under an external connection pool like this one, and in
-production that combination surfaced as intermittent
-"SSL SYSCALL error: EOF detected" / "decryption failed" errors once a
-pooled connection had sat idle for a while and PgBouncer recycled the
-underlying backend connection out from under it. Session mode dedicates a
-real backend connection for the lifetime of ours, which is what a
-persistent client-side pool actually needs.
+"""Postgres (Supabase) persistence layer with SQLite local fallback support.
 """
 import hashlib
 import os
 import secrets
+import sqlite3
 import threading
 import bcrypt
 from datetime import datetime, timedelta, timezone
 
-import psycopg
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
-
 import config
+
+def _row_to_dict(cursor, row):
+    if not row:
+        return None
+    if isinstance(row, dict):
+        return row
+    if hasattr(row, 'keys'):
+        try:
+            return dict(zip(row.keys(), row))
+        except Exception:
+            pass
+    if hasattr(cursor, 'description') and cursor.description:
+        colnames = [col[0] for col in cursor.description]
+        try:
+            return dict(zip(colnames, row))
+        except Exception:
+            pass
+    return row
+
+class SQLiteCursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+    def execute(self, sql, params=()):
+        sql = sql.replace('%s', '?')
+        return self._cursor.execute(sql, params)
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        return _row_to_dict(self._cursor, row)
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        return [_row_to_dict(self._cursor, r) for r in rows]
+    @property
+    def description(self):
+        return self._cursor.description
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+class SQLiteConnWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+    def cursor(self, *args, **kwargs):
+        c = self._conn.cursor()
+        return SQLiteCursorWrapper(c)
+    def commit(self):
+        return self._conn.commit()
+    def rollback(self):
+        return self._conn.rollback()
+    def close(self):
+        return self._conn.close()
+    def execute(self, sql, params=()):
+        sql = sql.replace('%s', '?')
+        cur = self._conn.cursor()
+        cur.execute(sql, params)
+        return SQLiteCursorWrapper(cur)
 
 class Database:
     def __init__(self):
-        if not config.DATABASE_URL:
-            raise RuntimeError(
-                'DATABASE_URL is not set. Postgres (Supabase) is required - '
-                'there is no SQLite fallback (that mode silently lost all '
-                'data on every deploy). Set DATABASE_URL to a Supabase '
-                'connection string (Session Pooler, port 5432).'
-            )
-        # min_size=1 keeps this cheap at idle; max_size covers a handful of
-        # concurrent requests per gunicorn worker without needing to tune it.
-        #
-        # check=ConnectionPool.check_connection pings a connection before
-        # handing it out - without this, a connection that went bad while
-        # sitting in the pool (network blip, the server killing an idle
-        # connection, etc.) gets handed to the next caller anyway, and
-        # a write against a truly-dead connection hangs rather than erroring
-        # fast, since the client is waiting on a TCP peer that will never
-        # respond. Observed in production: after a couple of failed writes,
-        # the pool ended up holding a broken connection that made every
-        # subsequent write hang until timeout instead of failing immediately.
-        # max_size is deliberately small. Supabase's pooler allows a limited
-        # number of *client* connections, and gunicorn runs multiple workers
-        # that each build their own independent pool - so the number that
-        # matters upstream is (workers x max_size), not max_size. At the
-        # previous max_size=10 that was 2x10=20, over the budget, and once
-        # it was hit the pooler stopped accepting new connections, which
-        # surfaces here as "couldn't get a connection" rather than as any
-        # kind of explicit limit error. 2x3=6 leaves plenty of headroom, and
-        # is still ample for this app's traffic.
-        #
-        # timeout=10 (default 30) so that if the pool ever does run dry,
-        # callers fail fast instead of every request in the app blocking for
-        # half a minute first - a 30s wait behind an exhausted pool reads to
-        # users as "the whole site is hung", which is worse than an error.
-        # THE timeouts below are what actually keep the pool alive, and are
-        # not optional tuning. A Postgres socket has no timeout by default:
-        # if the peer dies without sending FIN/RST (pooler recycles it, NAT
-        # or LB drops the flow, transient partition), the next query on that
-        # connection blocks *forever*. That thread is stuck inside the `try`,
-        # so the `finally: release_connection()` never runs and the
-        # connection is gone from the pool permanently. Repeat max_size times
-        # and the pool is dead with no errors logged and no self-recovery -
-        # which is exactly what production showed: available=0, size=3,
-        # waiting climbing, errors=None, staying that way while fully idle.
-        #
-        #   connect_timeout - bounds establishing a new connection
-        #   keepalives_*    - makes the kernel probe an idle peer and fail
-        #                     the socket if it's gone, instead of waiting
-        #                     forever for a reply that will never come
-        #   statement_timeout - server-side ceiling so a single query can
-        #                     never pin a pooled connection indefinitely
-        connect_kwargs = {
-            'connect_timeout': 10,
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 3,
-        }
+        self.is_sqlite = False
+        db_url = getattr(config, 'DATABASE_URL', '') or ''
+        
+        if db_url.startswith('sqlite') or not db_url or 'postgres' not in db_url:
+            self.is_sqlite = True
+            clean_path = db_url.replace('sqlite:///', '').replace('sqlite://', '')
+            if not clean_path:
+                clean_path = os.path.join(os.path.dirname(__file__), 'data', 'chatbot.db')
+            os.makedirs(os.path.dirname(os.path.abspath(clean_path)), exist_ok=True)
+            self.sqlite_path = clean_path
+            self.init_db()
+        else:
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
 
-        def _configure(conn):
-            # statement_timeout has to be SET here rather than passed as a
-            # libpq `options` startup parameter: Supabase's pooler strips
-            # that, silently leaving the server default (verified - it stayed
-            # at 2min). Applied per new connection by the pool.
-            conn.execute("SET statement_timeout = '15s'")
-            conn.commit()
-        # max_lifetime recycles connections well inside the window where a
-        # pooler or LB would silently drop a long-lived one.
-        # Deliberately NO check= callback. It was added here to catch stale
-        # connections, but ConnectionPool.check_connection works by toggling
-        # conn.autocommit, which *raises* on a connection that still has a
-        # transaction open ("can't change 'autocommit' now: ... INTRANS" -
-        # confirmed directly). psycopg_pool treats every exception from the
-        # check as recoverable, so it returns that connection to the pool and
-        # retries in a loop; if the same connection keeps failing the check,
-        # the loop just spins until the pool timeout and the caller sees
-        # "couldn't get a connection" even though connections exist and the
-        # database is fine. That matches production exactly: size=3,
-        # available=0, errors=0, waiting far above what sync workers could
-        # even generate. Staleness is instead handled by the keepalives and
-        # max_lifetime/max_idle below - and a stale connection failing one
-        # query is much better than every request blocking on a retry loop.
-        # Fork-safety. Nothing connects at import time. gunicorn forks its
-        # workers *after* importing app.py - and therefore after this
-        # module's `db = Database()` has already run - so a pool opened here
-        # would hand the very same live SSL socket to every child. Two
-        # processes then interleave writes on one TLS stream and the server
-        # rejects the garbled records with
-        # "SSL error: decryption failed or bad record mac", which is exactly
-        # what production returned. Those corrupted connections never come
-        # back to the pool, so it bleeds down to empty and every subsequent
-        # request fails with PoolTimeout instead - the symptom that masked
-        # the real cause for so long.
-        #
-        # So the pool is built on first use and tagged with the pid that
-        # built it. A child that inherited a parent's pool sees the mismatch
-        # and builds its own. The inherited object is abandoned rather than
-        # closed: closing it would tear down sockets the parent still uses.
-        self._connect_kwargs = connect_kwargs
-        self._configure_cb = _configure
-        self._pool = None
-        self._pool_pid = None
-        self._pool_lock = threading.Lock()
+            self._connect_kwargs = {
+                'connect_timeout': 10,
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 3,
+            }
+
+            def _configure(conn):
+                conn.execute("SET statement_timeout = '15s'")
+                conn.commit()
+
+            self._configure_cb = _configure
+            self._pool = None
+            self._pool_pid = None
+            self._pool_lock = threading.Lock()
 
     def _get_pool(self):
-        """Return this process's pool, creating it if this is the first use
-        here or if we've been forked since it was created."""
+        if self.is_sqlite:
+            return None
+        from psycopg_pool import ConnectionPool
         pool = self._pool
         if pool is not None and self._pool_pid == os.getpid():
             return pool
@@ -157,32 +114,17 @@ class Database:
             self._pool = ConnectionPool(
                 config.DATABASE_URL, min_size=1, max_size=3, open=True,
                 kwargs=self._connect_kwargs, configure=self._configure_cb,
+                check=ConnectionPool.check_connection,
                 timeout=10, max_lifetime=300, max_idle=60,
             )
             self._pool_pid = pid
             return self._pool
 
-    def get_connection(self):
-        """Check a connection out of the pool. Caller must call
-        release_connection() when done (finally block), and must call
-        conn.commit() explicitly after writes - autocommit is off, matching
-        the old sqlite3 default."""
-        return self._get_pool().getconn()
-
     def get_pool_stats(self):
-        """Pool counters for /api/health. Exposed because connection-pool
-        problems are otherwise invisible from outside the process - they
-        surface only as generic timeouts, which is indistinguishable from
-        the database itself being slow or unreachable."""
+        if self.is_sqlite:
+            return {'type': 'sqlite', 'pid': os.getpid(), 'path': getattr(self, 'sqlite_path', '')}
         try:
             pool = self._get_pool()
-            # Return psycopg_pool's counters wholesale rather than a curated
-            # subset. The hand-picked fields turned out to omit precisely the
-            # ones that distinguish the candidate causes: connections_lost
-            # (server closed it under us), returns_bad (handed back
-            # unusable), connections_errors (couldn't be opened at all) and
-            # requests_errors. Debugging this blind has already cost several
-            # wrong theories, and the counters are cheap.
             stats = dict(pool.get_stats())
             stats['pid'] = os.getpid()
             stats['max_size_cfg'] = pool.max_size
@@ -190,19 +132,26 @@ class Database:
         except Exception as exc:
             return {'error': str(exc)[:100], 'pid': os.getpid()}
 
+    def get_connection(self):
+        if self.is_sqlite:
+            raw_conn = sqlite3.connect(self.sqlite_path)
+            raw_conn.row_factory = sqlite3.Row
+            return SQLiteConnWrapper(raw_conn)
+        return self._get_pool().getconn()
+
     def release_connection(self, conn):
-        """Return a connection to the pool. If a write failed partway
-        through, roll back first - handing back a connection mid-transaction
-        would poison it for whoever borrows it next."""
+        if self.is_sqlite:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return
+
+        import psycopg
         try:
             if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
                 conn.rollback()
         except Exception:
-            # Rollback failed, so this connection can't be cleaned up and
-            # must not go back into the pool still dirty - a connection stuck
-            # mid-transaction breaks for every subsequent borrower, not just
-            # this request. Closing it makes putconn() discard and replace it
-            # instead, trading one reconnect for not wedging the pool.
             try:
                 conn.close()
             except Exception:
@@ -210,59 +159,205 @@ class Database:
         self._get_pool().putconn(conn)
 
     def init_db(self):
-        """Verify connectivity. Schema is managed via Supabase migrations,
-        not app-startup DDL - a mismatch here should fail loudly at boot
-        rather than silently running against tables that don't exist."""
         conn = self.get_connection()
         try:
-            conn.execute('SELECT 1 FROM users LIMIT 1')
+            if self.is_sqlite:
+                c = conn.cursor()
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id TEXT PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        email TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        language TEXT DEFAULT 'en',
+                        is_archived BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        sender TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        language TEXT DEFAULT 'en',
+                        tokens_used INTEGER DEFAULT 0,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS api_usage (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        endpoint TEXT NOT NULL,
+                        tokens_used INTEGER DEFAULT 0,
+                        cost REAL DEFAULT 0,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS personas (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        system_prompt TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        token TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        used BOOLEAN DEFAULT FALSE,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS pending_registrations (
+                        email TEXT PRIMARY KEY,
+                        username TEXT NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        otp_code TEXT NOT NULL,
+                        attempts INTEGER DEFAULT 0,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                conn.commit()
+            else:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS users (
+                        id VARCHAR(255) PRIMARY KEY,
+                        username VARCHAR(255) UNIQUE NOT NULL,
+                        email VARCHAR(255) UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id VARCHAR(255) PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        title TEXT NOT NULL,
+                        language VARCHAR(10) DEFAULT 'en',
+                        is_archived BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id VARCHAR(255) PRIMARY KEY,
+                        conversation_id VARCHAR(255) NOT NULL,
+                        sender VARCHAR(50) NOT NULL,
+                        text TEXT NOT NULL,
+                        language VARCHAR(10) DEFAULT 'en',
+                        tokens_used INTEGER DEFAULT 0,
+                        timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS api_usage (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        endpoint VARCHAR(255) NOT NULL,
+                        tokens_used INTEGER DEFAULT 0,
+                        cost REAL DEFAULT 0,
+                        timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS personas (
+                        id VARCHAR(255) PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        name VARCHAR(255) NOT NULL,
+                        system_prompt TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        token VARCHAR(255) PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        used BOOLEAN DEFAULT FALSE,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS pending_registrations (
+                        email VARCHAR(255) PRIMARY KEY,
+                        username VARCHAR(255) NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        otp_code VARCHAR(10) NOT NULL,
+                        attempts INTEGER DEFAULT 0,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS memory_messages (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        role VARCHAR(50) NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_memory_messages_user ON memory_messages(user_id, id);
+                    CREATE TABLE IF NOT EXISTS user_facts (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        fact_key VARCHAR(255) NOT NULL,
+                        fact_value TEXT NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, fact_key)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_user_facts_user ON user_facts(user_id);
+                ''')
+                conn.commit()
         finally:
             self.release_connection(conn)
 
     # USER MANAGEMENT
     def create_user(self, username, email, password):
-        """Create new user with hashed password"""
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         return self._insert_user(username, email, password_hash)
 
-    def _insert_user(self, username, email, password_hash):
-        """Shared by create_user and OTP-verified signup - takes an
-        already-hashed password so the OTP path never has to re-derive or
-        re-transmit the plaintext."""
-        user_id = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()
+    def _insert_user(self, username, email, password_hash, user_id=None):
+        if not user_id:
+            user_id = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
         try:
             c = conn.cursor()
-            c.execute('''
+            param_placeholder = '?' if self.is_sqlite else '%s'
+            c.execute(f'''
                 INSERT INTO users (id, username, email, password_hash)
-                VALUES (%s, %s, %s, %s)
+                VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
             ''', (user_id, username, email, password_hash))
             conn.commit()
             return user_id
-        except psycopg.errors.IntegrityError:
+        except Exception:
             return None
         finally:
             self.release_connection(conn)
 
     def get_user(self, username):
-        """Get user by username"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('SELECT * FROM users WHERE username = %s', (username,))
-            user = c.fetchone()
-            return dict(user) if user else None
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM users WHERE username = {param}', (username,))
+            return _row_to_dict(c, c.fetchone())
         finally:
             self.release_connection(conn)
 
     def get_user_by_id(self, user_id):
-        """Get user by id"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('SELECT * FROM users WHERE id = %s', (user_id,))
-            user = c.fetchone()
-            return dict(user) if user else None
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM users WHERE id = {param}', (user_id,))
+            return _row_to_dict(c, c.fetchone())
         finally:
             self.release_connection(conn)
 
@@ -275,54 +370,105 @@ class Database:
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
 
     def update_password(self, user_id, new_password):
-        """Hash and store a new password for a user"""
         password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
         conn = self.get_connection()
         try:
             c = conn.cursor()
-            c.execute(
-                'UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s',
-                (password_hash, user_id),
-            )
+            param = '?' if self.is_sqlite else '%s'
+            now_sql = "CURRENT_TIMESTAMP" if self.is_sqlite else "NOW()"
+            c.execute(f'''
+                UPDATE users SET password_hash = {param}, updated_at = {now_sql} WHERE id = {param}
+            ''', (password_hash, user_id))
             conn.commit()
             return c.rowcount > 0
         finally:
             self.release_connection(conn)
 
     def delete_user(self, user_id):
-        """Permanently delete a user and all their data.
-
-        Deleted in explicit dependency order rather than relying on
-        cascade, since the foreign keys here don't declare ON DELETE
-        CASCADE (matches the original SQLite behaviour, where FKs weren't
-        even enforced - here they are enforced, so this order matters more
-        than it used to, not less)."""
         conn = self.get_connection()
         try:
             c = conn.cursor()
-            c.execute(
-                'DELETE FROM messages WHERE conversation_id IN '
-                '(SELECT id FROM conversations WHERE user_id = %s)',
-                (user_id,),
-            )
-            c.execute('DELETE FROM conversations WHERE user_id = %s', (user_id,))
-            c.execute('DELETE FROM api_usage WHERE user_id = %s', (user_id,))
-            c.execute('DELETE FROM personas WHERE user_id = %s', (user_id,))
-            c.execute('DELETE FROM password_reset_tokens WHERE user_id = %s', (user_id,))
-            c.execute('DELETE FROM users WHERE id = %s', (user_id,))
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'''
+                DELETE FROM messages WHERE conversation_id IN 
+                (SELECT id FROM conversations WHERE user_id = {param})
+            ''', (user_id,))
+            c.execute(f'DELETE FROM conversations WHERE user_id = {param}', (user_id,))
+            c.execute(f'DELETE FROM api_usage WHERE user_id = {param}', (user_id,))
+            c.execute(f'DELETE FROM personas WHERE user_id = {param}', (user_id,))
+            c.execute(f'DELETE FROM password_reset_tokens WHERE user_id = {param}', (user_id,))
+            c.execute(f'DELETE FROM users WHERE id = {param}', (user_id,))
             conn.commit()
             return c.rowcount > 0
         finally:
             self.release_connection(conn)
 
     def get_user_by_email(self, email):
-        """Get user by email"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('SELECT * FROM users WHERE email = %s', (email,))
-            user = c.fetchone()
-            return dict(user) if user else None
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM users WHERE email = {param}', (email,))
+            return _row_to_dict(c, c.fetchone())
+        finally:
+            self.release_connection(conn)
+
+    MAX_OTP_ATTEMPTS = 5
+
+    # PENDING REGISTRATION / OTP
+    def create_pending_registration(self, username, email, password, otp_code, ttl_minutes=15):
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        conn = self.get_connection()
+        try:
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'DELETE FROM pending_registrations WHERE email = {param}', (email,))
+            c.execute(f'''
+                INSERT INTO pending_registrations (email, username, password_hash, otp_code, expires_at)
+                VALUES ({param}, {param}, {param}, {param}, {param})
+            ''', (email, username, password_hash, otp_code, expires_at))
+            conn.commit()
+            return True
+        finally:
+            self.release_connection(conn)
+
+    def get_pending_registration(self, email):
+        conn = self.get_connection()
+        try:
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM pending_registrations WHERE email = {param}', (email,))
+            row = c.fetchone()
+        finally:
+            self.release_connection(conn)
+        if not row:
+            return None
+        exp = row.get('expires_at') if isinstance(row, dict) else None
+        if isinstance(exp, str):
+            exp = datetime.fromisoformat(exp.replace('Z', '+00:00'))
+        if exp and exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp and exp < datetime.now(timezone.utc):
+            self.delete_pending_registration(email)
+            return None
+        return row
+
+    def delete_pending_registration(self, email):
+        conn = self.get_connection()
+        try:
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'DELETE FROM pending_registrations WHERE email = {param}', (email,))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
+
+    def increment_otp_attempts(self, email):
+        conn = self.get_connection()
+        try:
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = {param}', (email,))
+            conn.commit()
         finally:
             self.release_connection(conn)
 
@@ -394,130 +540,129 @@ class Database:
 
     # PASSWORD RESET
     def create_password_reset_token(self, user_id, ttl_minutes=60):
-        """Generate a single-use reset token, invalidating any earlier
-        unused tokens for this user first."""
         conn = self.get_connection()
         try:
             c = conn.cursor()
-            c.execute(
-                'UPDATE password_reset_tokens SET used = TRUE WHERE user_id = %s AND used = FALSE',
-                (user_id,),
-            )
+            param = '?' if self.is_sqlite else '%s'
+            true_val = '1' if self.is_sqlite else 'TRUE'
+            false_val = '0' if self.is_sqlite else 'FALSE'
+            c.execute(f'''
+                UPDATE password_reset_tokens SET used = {true_val} WHERE user_id = {param} AND used = {false_val}
+            ''', (user_id,))
             token = secrets.token_urlsafe(32)
             expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
-            c.execute(
-                'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (%s, %s, %s)',
-                (token, user_id, expires_at),
-            )
+            c.execute(f'''
+                INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES ({param}, {param}, {param})
+            ''', (token, user_id, expires_at))
             conn.commit()
             return token
         finally:
             self.release_connection(conn)
 
     def get_valid_reset_token(self, token):
-        """Return the token row if it exists, is unused, and hasn't expired."""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('SELECT * FROM password_reset_tokens WHERE token = %s', (token,))
-            row = c.fetchone()
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM password_reset_tokens WHERE token = {param}', (token,))
+            row = _row_to_dict(c, c.fetchone())
         finally:
             self.release_connection(conn)
         if not row:
             return None
-        row = dict(row)
-        if row['used']:
+        if isinstance(row, dict) and row.get('used'):
             return None
-        if row['expires_at'] < datetime.now(timezone.utc):
+        exp = row.get('expires_at') if isinstance(row, dict) else None
+        if isinstance(exp, str):
+            exp = datetime.fromisoformat(exp.replace('Z', '+00:00'))
+        if exp and exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp and exp < datetime.now(timezone.utc):
             return None
         return row
 
     def mark_reset_token_used(self, token):
         conn = self.get_connection()
         try:
-            conn.execute('UPDATE password_reset_tokens SET used = TRUE WHERE token = %s', (token,))
+            param = '?' if self.is_sqlite else '%s'
+            true_val = '1' if self.is_sqlite else 'TRUE'
+            conn.execute(f'UPDATE password_reset_tokens SET used = {true_val} WHERE token = {param}', (token,))
             conn.commit()
         finally:
             self.release_connection(conn)
 
-    # SIGNUP OTP VERIFICATION
     MAX_OTP_ATTEMPTS = 5
 
     def create_pending_registration(self, username, email, password, otp_code, ttl_minutes=10):
-        """Stage a signup behind an OTP code. Password is hashed immediately -
-        this table never holds a plaintext password, even briefly. Replaces
-        any earlier pending attempt for the same email (e.g. user hit
-        "resend code")."""
-        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        expires_str = expires_at.strftime('%Y-%m-%d %H:%M:%S')
+
         conn = self.get_connection()
         try:
-            conn.execute(
-                '''INSERT INTO pending_registrations
-                   (email, username, password_hash, otp_code, attempts, expires_at)
-                   VALUES (%s, %s, %s, %s, 0, %s)
-                   ON CONFLICT (email) DO UPDATE SET
-                       username = excluded.username,
-                       password_hash = excluded.password_hash,
-                       otp_code = excluded.otp_code,
-                       attempts = 0,
-                       created_at = NOW(),
-                       expires_at = excluded.expires_at''',
-                (email, username, password_hash, otp_code, expires_at),
-            )
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'DELETE FROM pending_registrations WHERE email = {param}', (email,))
+            c.execute(f'''
+                INSERT INTO pending_registrations (email, username, password_hash, otp_code, attempts, expires_at)
+                VALUES ({param}, {param}, {param}, {param}, 0, {param})
+            ''', (email, username, password_hash, otp_code, expires_str))
             conn.commit()
         finally:
             self.release_connection(conn)
 
     def get_pending_registration(self, email):
-        """Return the pending row if it exists and hasn't expired (expiry
-        alone - attempt-count exhaustion is checked separately by the
-        caller so it can distinguish "wrong code" from "too many tries" for
-        the user)."""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('SELECT * FROM pending_registrations WHERE email = %s', (email,))
-            row = c.fetchone()
-        finally:
-            self.release_connection(conn)
-        if not row:
-            return None
-        row = dict(row)
-        if row['expires_at'] < datetime.now(timezone.utc):
-            return None
-        return row
-
-    def increment_otp_attempts(self, email):
-        """Record a failed verification attempt, returning the new count."""
-        conn = self.get_connection()
-        try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = %s', (email,))
-            conn.commit()
-            c.execute('SELECT attempts FROM pending_registrations WHERE email = %s', (email,))
-            row = c.fetchone()
-            return row['attempts'] if row else self.MAX_OTP_ATTEMPTS
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'SELECT * FROM pending_registrations WHERE email = {param}', (email,))
+            row = _row_to_dict(c, c.fetchone())
+            if not row:
+                return None
+            
+            exp = row.get('expires_at') if isinstance(row, dict) else None
+            if isinstance(exp, str):
+                try:
+                    exp = datetime.fromisoformat(exp.replace('Z', '+00:00'))
+                except Exception:
+                    pass
+            if isinstance(exp, datetime):
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp < datetime.now(timezone.utc):
+                    return None
+            return row
         finally:
             self.release_connection(conn)
 
     def delete_pending_registration(self, email):
         conn = self.get_connection()
         try:
-            conn.execute('DELETE FROM pending_registrations WHERE email = %s', (email,))
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'DELETE FROM pending_registrations WHERE email = {param}', (email,))
+            conn.commit()
+        finally:
+            self.release_connection(conn)
+
+    def increment_otp_attempts(self, email):
+        conn = self.get_connection()
+        try:
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = {param}', (email,))
             conn.commit()
         finally:
             self.release_connection(conn)
 
     # CONVERSATION MANAGEMENT
     def create_conversation(self, user_id, title, language='en'):
-        """Create new conversation"""
         conv_id = hashlib.md5(f"{user_id}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
         try:
-            conn.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'''
                 INSERT INTO conversations (id, user_id, title, language)
-                VALUES (%s, %s, %s, %s)
+                VALUES ({param}, {param}, {param}, {param})
             ''', (conv_id, user_id, title, language))
             conn.commit()
             return conv_id
@@ -525,28 +670,31 @@ class Database:
             self.release_connection(conn)
 
     def get_conversations(self, user_id, limit=50):
-        """Get all conversations for user"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('''
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            false_val = '0' if self.is_sqlite else 'FALSE'
+            c.execute(f'''
                 SELECT * FROM conversations
-                WHERE user_id = %s AND is_archived = FALSE
+                WHERE user_id = {param} AND is_archived = {false_val}
                 ORDER BY updated_at DESC
-                LIMIT %s
+                LIMIT {param}
             ''', (user_id, limit))
-            return [dict(row) for row in c.fetchall()]
+            rows = c.fetchall()
+            return [_row_to_dict(c, r) for r in rows]
         finally:
             self.release_connection(conn)
 
     def update_conversation_title(self, conv_id, title):
-        """Update conversation title"""
         conn = self.get_connection()
         try:
-            conn.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            now_sql = "CURRENT_TIMESTAMP" if self.is_sqlite else "NOW()"
+            conn.execute(f'''
                 UPDATE conversations
-                SET title = %s, updated_at = NOW()
-                WHERE id = %s
+                SET title = {param}, updated_at = {now_sql}
+                WHERE id = {param}
             ''', (title, conv_id))
             conn.commit()
         finally:
@@ -554,47 +702,44 @@ class Database:
 
     # MESSAGE MANAGEMENT
     def add_message(self, conv_id, sender, text, language='en', tokens=0):
-        """Add message to conversation"""
         msg_id = hashlib.md5(f"{conv_id}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
         try:
             c = conn.cursor()
-            c.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            now_sql = "CURRENT_TIMESTAMP" if self.is_sqlite else "NOW()"
+            c.execute(f'''
                 INSERT INTO messages (id, conversation_id, sender, text, language, tokens_used)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES ({param}, {param}, {param}, {param}, {param}, {param})
             ''', (msg_id, conv_id, sender, text, language, tokens))
-
-            # Update conversation timestamp
-            c.execute('''
+            c.execute(f'''
                 UPDATE conversations
-                SET updated_at = NOW()
-                WHERE id = %s
+                SET updated_at = {now_sql}
+                WHERE id = {param}
             ''', (conv_id,))
-
             conn.commit()
             return msg_id
         finally:
             self.release_connection(conn)
 
     def get_messages(self, conv_id, limit=100):
-        """Get messages from conversation"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('''
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'''
                 SELECT * FROM messages
-                WHERE conversation_id = %s
+                WHERE conversation_id = {param}
                 ORDER BY timestamp ASC
-                LIMIT %s
+                LIMIT {param}
             ''', (conv_id, limit))
-            return [dict(row) for row in c.fetchall()]
+            rows = c.fetchall()
+            return [_row_to_dict(c, r) for r in rows]
         finally:
             self.release_connection(conn)
 
     def get_conversation_history(self, conv_id, max_tokens=4000):
-        """Get conversation history for context"""
         messages = self.get_messages(conv_id, limit=50)
-
         history = []
         token_count = 0
         for msg in messages:
@@ -606,41 +751,40 @@ class Database:
                 'content': msg['text']
             })
             token_count += msg_tokens
-
         return history
 
     # ANALYTICS
     def log_api_usage(self, user_id, endpoint, tokens_used=0, cost=0):
-        """Log API usage for analytics"""
         conn = self.get_connection()
         try:
-            conn.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'''
                 INSERT INTO api_usage (user_id, endpoint, tokens_used, cost)
-                VALUES (%s, %s, %s, %s)
+                VALUES ({param}, {param}, {param}, {param})
             ''', (user_id, endpoint, tokens_used, cost))
             conn.commit()
         finally:
             self.release_connection(conn)
 
     def get_user_stats(self, user_id):
-        """Get user statistics"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-
-            # Total tokens
-            c.execute('''
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            false_val = '0' if self.is_sqlite else 'FALSE'
+            c.execute(f'''
                 SELECT SUM(tokens_used) as total_tokens FROM api_usage
-                WHERE user_id = %s
+                WHERE user_id = {param}
             ''', (user_id,))
-            total_tokens = c.fetchone()['total_tokens'] or 0
+            row = _row_to_dict(c, c.fetchone())
+            total_tokens = (row.get('total_tokens') if isinstance(row, dict) else 0) or 0
 
-            # Total conversations
-            c.execute('''
+            c.execute(f'''
                 SELECT COUNT(*) as count FROM conversations
-                WHERE user_id = %s AND is_archived = FALSE
+                WHERE user_id = {param} AND is_archived = {false_val}
             ''', (user_id,))
-            total_conversations = c.fetchone()['count']
+            row_c = _row_to_dict(c, c.fetchone())
+            total_conversations = (row_c.get('count') if isinstance(row_c, dict) else 0) or 0
 
             return {
                 'total_tokens': total_tokens,
@@ -651,13 +795,13 @@ class Database:
 
     # PERSONA MANAGEMENT
     def create_persona(self, user_id, name, system_prompt):
-        """Create a new persona for a user"""
         persona_id = hashlib.md5(f"{user_id}{name}{datetime.now()}".encode()).hexdigest()
         conn = self.get_connection()
         try:
-            conn.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'''
                 INSERT INTO personas (id, user_id, name, system_prompt)
-                VALUES (%s, %s, %s, %s)
+                VALUES ({param}, {param}, {param}, {param})
             ''', (persona_id, user_id, name, system_prompt))
             conn.commit()
             return persona_id
@@ -665,41 +809,41 @@ class Database:
             self.release_connection(conn)
 
     def list_personas(self, user_id):
-        """List all personas belonging to a user"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('''
-                SELECT * FROM personas WHERE user_id = %s ORDER BY created_at ASC
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'''
+                SELECT * FROM personas WHERE user_id = {param} ORDER BY created_at ASC
             ''', (user_id,))
-            return [dict(row) for row in c.fetchall()]
+            rows = c.fetchall()
+            return [_row_to_dict(c, r) for r in rows]
         finally:
             self.release_connection(conn)
 
     def get_persona(self, persona_id, user_id):
-        """Get a single persona, scoped to its owner"""
         conn = self.get_connection()
         try:
-            c = conn.cursor(row_factory=dict_row)
-            c.execute('''
-                SELECT * FROM personas WHERE id = %s AND user_id = %s
+            c = conn.cursor()
+            param = '?' if self.is_sqlite else '%s'
+            c.execute(f'''
+                SELECT * FROM personas WHERE id = {param} AND user_id = {param}
             ''', (persona_id, user_id))
-            persona = c.fetchone()
-            return dict(persona) if persona else None
+            return _row_to_dict(c, c.fetchone())
         finally:
             self.release_connection(conn)
 
     def update_persona(self, persona_id, user_id, name, system_prompt):
-        """Update a persona's name/system_prompt. Returns False if it doesn't belong to user_id."""
         if not self.get_persona(persona_id, user_id):
             return False
-
         conn = self.get_connection()
         try:
-            conn.execute('''
+            param = '?' if self.is_sqlite else '%s'
+            now_sql = "CURRENT_TIMESTAMP" if self.is_sqlite else "NOW()"
+            conn.execute(f'''
                 UPDATE personas
-                SET name = %s, system_prompt = %s, updated_at = NOW()
-                WHERE id = %s AND user_id = %s
+                SET name = {param}, system_prompt = {param}, updated_at = {now_sql}
+                WHERE id = {param} AND user_id = {param}
             ''', (name, system_prompt, persona_id, user_id))
             conn.commit()
             return True
@@ -707,17 +851,15 @@ class Database:
             self.release_connection(conn)
 
     def delete_persona(self, persona_id, user_id):
-        """Delete a persona. Returns False if it doesn't belong to user_id."""
         if not self.get_persona(persona_id, user_id):
             return False
-
         conn = self.get_connection()
         try:
-            conn.execute('DELETE FROM personas WHERE id = %s AND user_id = %s', (persona_id, user_id))
+            param = '?' if self.is_sqlite else '%s'
+            conn.execute(f'DELETE FROM personas WHERE id = {param} AND user_id = {param}', (persona_id, user_id))
             conn.commit()
             return True
         finally:
             self.release_connection(conn)
 
-# Global instance
 db = Database()

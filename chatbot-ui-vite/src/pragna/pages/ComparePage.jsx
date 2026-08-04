@@ -3,10 +3,12 @@ import { ChevronDown } from 'lucide-react'
 import { ChatContext } from '../../context/ChatContext'
 import { getModelsCatalog, runCompare } from '../../api/api'
 import { normalizeLanguageCode } from '../../utils/language'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const MAX_MODELS = 4
 
 const ComparePage = () => {
+  const isMobile = useMediaQuery('(max-width: 640px)')
   const { language } = useContext(ChatContext)
 
   const [catalog, setCatalog] = useState([])
@@ -72,7 +74,7 @@ const ComparePage = () => {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
       <h1 style={{ margin: '0 0 6px 0', fontSize: '28px', fontWeight: 700, color: 'var(--pragna-text)' }}>Compare Models</h1>
       <p style={{ margin: '0 0 26px 0', fontSize: '14.5px', color: 'var(--pragna-text-muted)' }}>
         Send one prompt to up to {MAX_MODELS} models at once and see their answers side-by-side.
@@ -148,7 +150,7 @@ const ComparePage = () => {
       </div>
 
       {results && (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`, gap: '18px', maxWidth: '1200px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px', maxWidth: '1200px' }}>
           {results.map((result) => (
             <div
               key={result.model}

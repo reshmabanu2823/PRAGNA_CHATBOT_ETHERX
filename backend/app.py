@@ -787,9 +787,11 @@ def health_check():
     
     # Check 1: API Key Configuration
     try:
-        groq_key_configured = bool(config.GROQ_API_KEY and len(config.GROQ_API_KEY.strip()) > 0)
-        openai_key_configured = bool(config.OPENAI_API_KEY and len(config.OPENAI_API_KEY.strip()) > 0)
-        ollama_configured = config.OLLAMA_ENABLED
+        groq_key_val = getattr(config, 'GROQ_API_KEY', '') or ''
+        openai_key_val = getattr(config, 'OPENAI_API_KEY', '') or ''
+        groq_key_configured = bool(groq_key_val and str(groq_key_val).strip())
+        openai_key_configured = bool(openai_key_val and str(openai_key_val).strip())
+        ollama_configured = bool(getattr(config, 'OLLAMA_ENABLED', False))
         
         if not (groq_key_configured or openai_key_configured or ollama_configured):
             health_status['errors'].append(
@@ -846,6 +848,7 @@ def health_check():
             health_status['errors'].append(f'❌ LLM check failed: {str(e)[:100]}')
     
     # Check 3: Database
+    conn = None
     try:
         # try/finally is load-bearing, not style: without it a failing
         # SELECT 1 skips release_connection() and leaks that connection out
@@ -853,11 +856,12 @@ def health_check():
         # own monitoring polls it), so a transient DB blip used to leak one
         # connection per poll until the pool hit max_size and every request
         # in the app started blocking for the full pool timeout instead.
-        conn = db.get_connection()
         try:
+            conn = db.get_connection()
             conn.execute('SELECT 1')
         finally:
-            db.release_connection(conn)
+            if conn is not None:
+                db.release_connection(conn)
         health_status['systems']['database'] = {'status': 'healthy', 'pool': db.get_pool_stats()}
     except Exception as e:
         # Include pool stats on failure too - "couldn't get a connection"
@@ -2128,6 +2132,8 @@ def login():
         }), 200
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"Login error: {e}")
         return jsonify({'error': 'Login failed'}), 500
 

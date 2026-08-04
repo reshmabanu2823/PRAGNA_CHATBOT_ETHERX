@@ -482,12 +482,12 @@ export default function ChatWindow() {
                   key={index}
                   onClick={() => sendSuggestionMessage(card.prompt)}
                   style={{
-                    gridColumn: card.featured ? 'span 2' : 'span 1',
+                    gridColumn: card.featured ? (isMobile ? 'span 1' : 'span 2') : 'span 1',
                     display: 'flex',
-                    flexDirection: card.featured ? 'row' : 'column',
+                    flexDirection: card.featured ? (isMobile ? 'column' : 'row') : 'column',
                     alignItems: 'flex-start',
-                    gap: card.featured ? '18px' : '12px',
-                    padding: card.featured ? '26px' : '20px',
+                    gap: card.featured ? (isMobile ? '12px' : '18px') : '12px',
+                    padding: card.featured ? (isMobile ? '18px' : '26px') : (isMobile ? '16px' : '20px'),
                     borderRadius: '18px',
                     textAlign: 'left',
                     cursor: 'pointer',
@@ -621,7 +621,7 @@ export default function ChatWindow() {
 
       {/* Messages Scroll Area */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '32px 0', minHeight: 0 }} className="custom-scrollbar">
-        <div style={{ maxWidth: '780px', margin: '0 auto', padding: '0 28px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+        <div style={{ maxWidth: '780px', margin: '0 auto', padding: isMobile ? '0 12px' : '0 28px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
           {chat.messages.map((m, idx) => (
             <MessageBubble
               key={idx}

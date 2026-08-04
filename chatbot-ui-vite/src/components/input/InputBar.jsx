@@ -3,6 +3,7 @@ import { ChatContext } from "../../context/ChatContext";
 import { generateAIImage, generateDocument, sendOrchestratedMessage, sendOrchestratedMessageStream, sendOrchestratedUploadMessage, summarizeChat } from "../../api/api";
 import { normalizeLanguageCode, SUPPORTED_LANGUAGE_OPTIONS } from "../../utils/language";
 import LanguageSelector from "./LanguageSelector";
+import { useMediaQuery } from "../../pragna/hooks/useMediaQuery";
 
 // BCP-47 tags for SpeechRecognition
 const LANG_TAG = {
@@ -105,6 +106,7 @@ export default function InputBar() {
     newChat, setLanguage,
   } = useContext(ChatContext);
 
+  const isMobile = useMediaQuery("(max-width: 640px)");
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   // Update chat title when it's still "New chat" (after first response)
@@ -681,7 +683,7 @@ export default function InputBar() {
     : [];
 
   return (
-    <div style={{ padding: '16px 28px 22px 28px', flexShrink: 0 }}>
+    <div style={{ padding: isMobile ? '8px 10px 14px 10px' : '16px 28px 22px 28px', flexShrink: 0 }}>
       <div style={{ maxWidth: '780px', margin: '0 auto', position: 'relative' }}>
 
         {slashMatches.length > 0 && (

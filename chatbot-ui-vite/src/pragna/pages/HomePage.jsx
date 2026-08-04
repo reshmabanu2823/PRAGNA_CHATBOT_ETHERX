@@ -1,7 +1,9 @@
 import { useContext, useState } from 'react'
 import { ChatContext } from '../../context/ChatContext'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 const HomePage = ({ onUsePrompt, userProfile }) => {
+  const isMobile = useMediaQuery('(max-width: 640px)')
   const [tier, setTier] = useState('Basic')
   const { templates, createTemplate, deleteTemplate } = useContext(ChatContext)
   const [addingTemplate, setAddingTemplate] = useState(false)
@@ -54,10 +56,10 @@ const HomePage = ({ onUsePrompt, userProfile }) => {
   ]
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
-      <h1 style={{ margin: '0 0 8px 0', fontSize: '34px', fontWeight: 700, color: 'var(--pragna-text)', textAlign: 'center' }}>Hi {userName},</h1>
-      <div style={{ fontSize: '22px', color: 'var(--pragna-text-muted)', marginBottom: '18px' }}>where should we start?</div>
-      <p style={{ margin: '0 0 28px 0', fontSize: '15px', color: 'var(--pragna-text-muted)', textAlign: 'center' }}>Explore, create, or ask anything — I'm here to help.</p>
+    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: isMobile ? '24px 16px' : '56px 40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
+      <h1 style={{ margin: '0 0 8px 0', fontSize: isMobile ? '26px' : '34px', fontWeight: 700, color: 'var(--pragna-text)', textAlign: 'center' }}>Hi {userName},</h1>
+      <div style={{ fontSize: isMobile ? '18px' : '22px', color: 'var(--pragna-text-muted)', marginBottom: '18px' }}>where should we start?</div>
+      <p style={{ margin: '0 0 28px 0', fontSize: isMobile ? '14px' : '15px', color: 'var(--pragna-text-muted)', textAlign: 'center' }}>Explore, create, or ask anything — I'm here to help.</p>
 
       {/* Tiers slider */}
       <div style={{ display: 'flex', gap: '8px', padding: '5px', borderRadius: '999px', background: 'var(--pragna-surface)', border: '1px solid var(--pragna-border)', marginBottom: '36px' }}>
@@ -114,7 +116,7 @@ const HomePage = ({ onUsePrompt, userProfile }) => {
       )}
 
       {/* Explore cards grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px', maxWidth: 'min(90vw, 820px)', justifyContent: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px', width: '100%', maxWidth: 'min(90vw, 820px)', justifyContent: 'center' }}>
         {exploreCardDefs.map((card, idx) => {
           return (
             <button
@@ -152,7 +154,7 @@ const HomePage = ({ onUsePrompt, userProfile }) => {
         <div style={{ fontSize: '13px', fontWeight: 650, letterSpacing: '1px', color: 'var(--pragna-text-muted)', textTransform: 'uppercase', marginBottom: '14px' }}>
           Your templates
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px' }}>
           {templates.map((tpl) => (
             <button
               key={tpl.id}

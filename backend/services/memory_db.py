@@ -1,66 +1,62 @@
-"""Simple SQLite-based conversation memory store.
+"""Conversation memory store with Supabase Postgres persistence & SQLite fallback.
 
-Stores conversation history per user in a local SQLite database.
+Stores conversation history and extracted facts per user.
 Supports intelligent pruning using token-based optimization and message importance scoring.
+Uses Postgres (via database.db pool) when DATABASE_URL is configured, or local SQLite as fallback.
 """
-import os
-import sqlite3
 import logging
 import re
 from contextlib import contextmanager
 from typing import List, Dict, Tuple
 
 import config
-from services.memory_management import smart_prune_history, estimate_tokens
+from database import db
+from services.memory_management import smart_prune_history
 
 logger = logging.getLogger(__name__)
-
-# Database file under backend/temp
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-TEMP_DIR = os.path.join(BASE_DIR, "temp")
-os.makedirs(TEMP_DIR, exist_ok=True)
-DB_PATH = os.path.join(TEMP_DIR, "conversation_memory.db")
 
 
 @contextmanager
 def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = db.get_connection()
     try:
         yield conn
     finally:
-        conn.close()
+        db.release_connection(conn)
 
 
 def init_db() -> None:
     """Create tables if they do not exist."""
-    with _get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    db.init_db()
+    if db.is_sqlite:
+        with _get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-            """
-        )
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id)")
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_facts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                fact_key TEXT NOT NULL,
-                fact_value TEXT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, fact_key)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_messages_user ON memory_messages(user_id, id)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    fact_key TEXT NOT NULL,
+                    fact_value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, fact_key)
+                )
+                """
             )
-            """
-        )
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_user_facts_user ON user_facts(user_id)")
-        conn.commit()
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_user_facts_user ON user_facts(user_id)")
+            conn.commit()
 
 
 def _clean_fact_value(value: str, max_len: int = 200) -> str:
@@ -155,15 +151,16 @@ def _extract_user_facts(message: str) -> Dict[str, str]:
 def _upsert_user_fact(user_id: str, fact_key: str, fact_value: str) -> None:
     if not fact_value:
         return
+    param = '?' if db.is_sqlite else '%s'
     with _get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             INSERT INTO user_facts (user_id, fact_key, fact_value, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES ({param}, {param}, {param}, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, fact_key)
             DO UPDATE SET
-                fact_value = excluded.fact_value,
+                fact_value = EXCLUDED.fact_value,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (user_id, fact_key, fact_value),
@@ -183,14 +180,15 @@ def update_user_profile_from_message(user_id: str, message: str) -> Dict[str, st
 def get_user_profile_facts(user_id: str) -> Dict[str, str]:
     """Fetch persisted user profile facts as key-value pairs."""
     init_db()
+    param = '?' if db.is_sqlite else '%s'
     with _get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT fact_key, fact_value FROM user_facts WHERE user_id = ? ORDER BY updated_at DESC",
+            f"SELECT fact_key, fact_value FROM user_facts WHERE user_id = {param} ORDER BY updated_at DESC",
             (user_id,),
         )
         rows = cur.fetchall()
-    return {key: value for key, value in rows}
+    return {r[0]: r[1] for r in rows}
 
 
 def get_user_profile_summary(user_id: str) -> str:
@@ -226,30 +224,18 @@ def get_user_profile_summary(user_id: str) -> str:
 
 
 def get_history(user_id: str, max_messages: int = None, use_smart_pruning: bool = True) -> List[Dict[str, str]]:
-    """
-    Return conversation history for a user.
-    
-    Args:
-        user_id: User identifier
-        max_messages: Maximum messages to retrieve from DB (for backward compatibility).
-                     If None, uses config.CONVERSATION_HISTORY_SIZE
-        use_smart_pruning: If True, apply intelligent pruning to optimize context quality
-                          
-    Returns:
-        List of {"role", "content"} dicts ordered by time, optionally pruned
-    """
+    """Return conversation history for a user."""
     init_db()
     
-    # Use config default if not specified
     if max_messages is None:
         max_messages = config.CONVERSATION_HISTORY_SIZE
     
-    # Retrieve all messages (or up to limit) from database
     limit = max_messages * 2 if max_messages and max_messages > 0 else 0
-    query = "SELECT role, content FROM messages WHERE user_id=? ORDER BY id ASC"
+    param = '?' if db.is_sqlite else '%s'
+    query = f"SELECT role, content FROM memory_messages WHERE user_id = {param} ORDER BY id ASC"
     params = [user_id]
     if limit:
-        query += " LIMIT ?"
+        query += f" LIMIT {param}"
         params.append(limit)
     
     with _get_conn() as conn:
@@ -259,7 +245,6 @@ def get_history(user_id: str, max_messages: int = None, use_smart_pruning: bool 
     
     messages = [{"role": r[0], "content": r[1]} for r in rows]
     
-    # Apply smart pruning if enabled and history exists
     if use_smart_pruning and messages:
         pruned_messages, stats = smart_prune_history(
             messages,
@@ -268,8 +253,7 @@ def get_history(user_id: str, max_messages: int = None, use_smart_pruning: bool 
             min_messages=config.MIN_HISTORY_MESSAGES
         )
         
-        # Log pruning statistics
-        if stats['pruned_messages'] > 0:
+        if stats.get('pruned_messages', 0) > 0:
             logger.info(
                 f"📊 History pruned: {stats['pruned_messages']} removed, "
                 f"{stats['kept_messages']} kept for user {user_id} | "
@@ -282,21 +266,7 @@ def get_history(user_id: str, max_messages: int = None, use_smart_pruning: bool 
 
 
 def add_message(user_id: str, role: str, content: str, max_messages: int = None) -> Tuple[bool, Dict]:
-    """
-    Add a message and intelligently prune old history beyond limits.
-    
-    Uses smart pruning: scores messages by importance and maintains context quality
-    while staying within token and message limits.
-    
-    Args:
-        user_id: User identifier
-        role: Message role ("user" or "assistant")
-        content: Message content
-        max_messages: Maximum messages to keep. If None, uses config.CONVERSATION_HISTORY_SIZE
-        
-    Returns:
-        Tuple of (success: bool, stats: dict with pruning info)
-    """
+    """Add a message and intelligently prune old history beyond limits."""
     init_db()
 
     if role == "user" and content:
@@ -307,31 +277,27 @@ def add_message(user_id: str, role: str, content: str, max_messages: int = None)
         except Exception as exc:
             logger.warning(f"Failed to update user profile memory for {user_id}: {exc}")
     
-    # Use config defaults if not specified
     if max_messages is None:
         max_messages = config.CONVERSATION_HISTORY_SIZE
     
+    param = '?' if db.is_sqlite else '%s'
     with _get_conn() as conn:
         cur = conn.cursor()
         
-        # Insert new message
         cur.execute(
-            "INSERT INTO messages (user_id, role, content) VALUES (?, ?, ?)",
+            f"INSERT INTO memory_messages (user_id, role, content) VALUES ({param}, {param}, {param})",
             (user_id, role, content),
         )
         
-        # Get all messages for this user to perform smart pruning
         cur.execute(
-            "SELECT id, role, content FROM messages WHERE user_id = ? ORDER BY id ASC",
+            f"SELECT id, role, content FROM memory_messages WHERE user_id = {param} ORDER BY id ASC",
             (user_id,)
         )
         all_rows = cur.fetchall()
         
-        # If we have too many messages, apply smart pruning
         messages_list = [{"role": r[1], "content": r[2]} for r in all_rows]
         
         if len(messages_list) > config.MAX_HISTORY_MESSAGES:
-            # Apply smart pruning
             pruned_messages, stats = smart_prune_history(
                 messages_list,
                 max_tokens=config.MAX_HISTORY_TOKENS,
@@ -339,55 +305,65 @@ def add_message(user_id: str, role: str, content: str, max_messages: int = None)
                 min_messages=config.MIN_HISTORY_MESSAGES
             )
             
-            # Build set of IDs to keep (by matching content)
-            # This is a bit inefficient but necessary since we don't store importance scores
             ids_to_keep = set()
             msg_content_to_keep = {msg['content'] for msg in pruned_messages}
             
-            for row_id, role, content in all_rows:
-                if content in msg_content_to_keep:
+            for row_id, r_role, r_content in all_rows:
+                if r_content in msg_content_to_keep:
                     ids_to_keep.add(row_id)
             
-            # Delete messages not in the pruned set
             if ids_to_keep:
-                placeholders = ','.join('?' * len(ids_to_keep))
+                placeholders = ','.join([param] * len(ids_to_keep))
                 cur.execute(
-                    f"DELETE FROM messages WHERE user_id = ? AND id NOT IN ({placeholders})",
+                    f"DELETE FROM memory_messages WHERE user_id = {param} AND id NOT IN ({placeholders})",
                     [user_id] + list(ids_to_keep)
                 )
             
             logger.info(
-                f"💾 Added message and pruned history: {stats['pruned_messages']} removed | "
-                f"Tokens: {stats['final_tokens_estimate']}/{stats['token_budget']}"
+                f"💾 Added message and pruned history: {stats.get('pruned_messages', 0)} removed | "
+                f"Tokens: {stats.get('final_tokens_estimate', 0)}/{stats.get('token_budget', 0)}"
             )
             conn.commit()
             return True, stats
         
-        # Simple case: just keep last max_messages*2 if no smart pruning needed
         elif max_messages and max_messages > 0:
-            cur.execute(
-                """
-                DELETE FROM messages
-                WHERE user_id = ? AND id NOT IN (
-                    SELECT id FROM messages
-                    WHERE user_id = ?
-                    ORDER BY id DESC
-                    LIMIT ?
+            if db.is_sqlite:
+                cur.execute(
+                    """
+                    DELETE FROM memory_messages
+                    WHERE user_id = ? AND id NOT IN (
+                        SELECT id FROM memory_messages
+                        WHERE user_id = ?
+                        ORDER BY id DESC
+                        LIMIT ?
+                    )
+                    """,
+                    (user_id, user_id, max_messages * 2),
                 )
-                """,
-                (user_id, user_id, max_messages * 2),
-            )
+            else:
+                cur.execute(
+                    """
+                    DELETE FROM memory_messages
+                    WHERE user_id = %s AND id NOT IN (
+                        SELECT id FROM memory_messages
+                        WHERE user_id = %s
+                        ORDER BY id DESC
+                        LIMIT %s
+                    )
+                    """,
+                    (user_id, user_id, max_messages * 2),
+                )
             logger.debug(f"💾 Added message (simple retention: max {max_messages * 2})")
         
         conn.commit()
         return True, {"reason": "no_pruning_needed"}
 
 
-
 def clear_history(user_id: str) -> None:
     """Delete all messages for a user."""
     init_db()
+    param = '?' if db.is_sqlite else '%s'
     with _get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM messages WHERE user_id=?", (user_id,))
+        cur.execute(f"DELETE FROM memory_messages WHERE user_id = {param}", (user_id,))
         conn.commit()

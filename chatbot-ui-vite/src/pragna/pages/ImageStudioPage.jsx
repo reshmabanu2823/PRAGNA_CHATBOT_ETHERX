@@ -1,3 +1,5 @@
+import { useMediaQuery } from '../hooks/useMediaQuery'
+
 const ImageStudioPage = ({
   imagePrompt,
   setImagePrompt,
@@ -13,8 +15,10 @@ const ImageStudioPage = ({
   onGenerate,
   onSendToChat,
 }) => {
+  const isMobile = useMediaQuery('(max-width: 640px)')
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '20px 16px' : '40px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
       <h1 style={{ margin: '0 0 6px 0', fontSize: '28px', fontWeight: 700, color: 'var(--pragna-text)' }}>Image Studio</h1>
       <p style={{ margin: '0 0 26px 0', fontSize: '14.5px', color: 'var(--pragna-text-muted)' }}>Generate production-quality AI images with style and quality controls.</p>
 
@@ -77,7 +81,7 @@ const ImageStudioPage = ({
         </div>
 
         {/* Buttons */}
-        <div style={{ display: 'flex', gap: '12px', marginBottom: imageError || generatedImage?.image ? '20px' : 0 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '12px', marginBottom: imageError || generatedImage?.image ? '20px' : 0 }}>
           <button
             onClick={onGenerate}
             disabled={isGeneratingImage || !imagePrompt.trim()}

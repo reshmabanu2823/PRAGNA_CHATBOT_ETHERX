@@ -1,3 +1,5 @@
+import { useMediaQuery } from '../hooks/useMediaQuery'
+
 const CHAT_MODE_ITEMS = [
   { id: 'general', label: 'General', description: 'Standard helpful assistant' },
   { id: 'explain_concepts', label: 'Explain', description: 'Break down complex ideas' },
@@ -9,8 +11,10 @@ const CHAT_MODE_ITEMS = [
 ]
 
 const GptModesPage = ({ chatMode, onSelectMode }) => {
+  const isMobile = useMediaQuery('(max-width: 640px)')
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '48px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '24px 16px' : '48px', animation: 'fadeUp 0.4s ease', height: '100%' }}>
       <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 700, color: 'var(--pragna-text)' }}>
         Pragna GPT Modes
       </h1>
@@ -18,7 +22,7 @@ const GptModesPage = ({ chatMode, onSelectMode }) => {
         Choose a specialized behavior profile for your assistant.
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px', maxWidth: '900px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 260px))', gap: '16px', maxWidth: '900px' }}>
         {CHAT_MODE_ITEMS.map((mode) => {
           const active = chatMode === mode.id
           

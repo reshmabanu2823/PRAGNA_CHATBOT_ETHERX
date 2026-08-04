@@ -364,12 +364,22 @@ ${turns}
   const unfiledChats = filteredChats.filter((chat) => !chat.folderId)
 
   return (
-    <aside style={{ width: '340px', flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--pragna-surface)', borderRight: '1px solid var(--pragna-border)', backdropFilter: 'blur(8px)', height: '100%' }}>
+    <aside style={{ width: onClose ? '100%' : '340px', maxWidth: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--pragna-surface)', borderRight: '1px solid var(--pragna-border)', backdropFilter: 'blur(8px)', height: '100%' }}>
       
       {/* Wordmark logo */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px 16px 20px', flexShrink: 0 }}>
-        <img src={pragnaLogo} alt="Pragna I-A" style={{ height: '150px', width: '300px', objectFit: 'cover' }} />
-        {!onClose && (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: onClose ? '12px 14px' : '20px 20px 16px 20px', flexShrink: 0 }}>
+        <img src={pragnaLogo} alt="Pragna I-A" style={{ height: onClose ? '70px' : '150px', width: onClose ? 'auto' : '300px', maxWidth: '100%', objectFit: 'contain' }} />
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close menu"
+            style={{ padding: '6px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--pragna-text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}
+            className="hover:bg-[var(--pragna-surface-2)] hover:text-[var(--pragna-gold-soft)]"
+          >
+            <PanelLeftClose size={18} />
+          </button>
+        ) : (
           <button
             type="button"
             onClick={toggleSidebar}
@@ -384,7 +394,10 @@ ${turns}
       {/* New chat button (Sticky, non-scrollable) */}
       <div style={{ padding: '6px 16px 14px 16px', flexShrink: 0 }}>
         <button
-          onClick={onNewChat}
+          onClick={() => {
+            onNewChat()
+            if (onClose) onClose()
+          }}
           style={{
             width: '100%',
             display: 'flex',

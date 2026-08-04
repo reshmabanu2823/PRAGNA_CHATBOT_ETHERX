@@ -58,7 +58,7 @@ const MainLayout = ({
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25 }}
-              className="fixed left-0 top-0 bottom-0 w-80 z-50 shadow-premium-lg"
+              className="fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-50 shadow-premium-lg"
             >
               <Sidebar
                 activeView={activeView}

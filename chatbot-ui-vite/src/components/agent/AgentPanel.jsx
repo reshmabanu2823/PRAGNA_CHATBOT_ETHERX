@@ -348,8 +348,8 @@ export default function AgentPanel() {
       </div>
 
       {/* Mode selector */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--pragna-border)' }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--pragna-border)', overflowX: 'auto' }} className="hide-scrollbar">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
           {MODES.map(mode => (
             <button
               key={mode.id}
