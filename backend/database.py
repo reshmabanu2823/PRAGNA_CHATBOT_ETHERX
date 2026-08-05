@@ -346,7 +346,7 @@ class Database:
         try:
             c = conn.cursor()
             param = '?' if self.is_sqlite else '%s'
-            c.execute(f'SELECT * FROM users WHERE username = {param}', (username,))
+            c.execute(f'SELECT * FROM users WHERE LOWER(username) = LOWER({param}) OR LOWER(email) = LOWER({param})', (username, username))
             return _row_to_dict(c, c.fetchone())
         finally:
             self.release_connection(conn)
