@@ -402,7 +402,6 @@ export default function ChatWindow() {
   const starterDefs = [
     { icon: 'code', title: 'Code help', desc: 'Debugging, implementation, and reviews — describe the problem and get working code.', prompt: 'Can you write me a bubble sort algorithm?', featured: true },
     { icon: 'image', title: 'Create image', desc: 'Generate visuals from text prompts', prompt: 'Create an image of a golden temple at dusk' },
-    { icon: 'sports', title: 'Follow sports', desc: 'Live scores and quick match updates', prompt: 'Give me the latest IPL scores' },
     { icon: 'write', title: 'Write content', desc: 'Draft posts, scripts, and copy', prompt: 'Write a LinkedIn post about learning in public' },
     { icon: 'research', title: 'Research mode', desc: 'Summaries with context and action points', prompt: 'Summarize the pros and cons of microservices' },
     { icon: 'idea', title: 'Brainstorm', desc: 'Generate strategic ideas quickly', prompt: 'Brainstorm names for a chai café' },
