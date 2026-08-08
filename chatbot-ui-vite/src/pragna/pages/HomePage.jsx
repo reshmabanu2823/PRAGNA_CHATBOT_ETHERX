@@ -48,7 +48,6 @@ const HomePage = ({ onUsePrompt, userProfile }) => {
 
   const exploreCardDefs = [
     { icon: 'image', title: 'Create image', desc: 'Generate visuals from text', bg: 'rgba(120,110,220,0.16)', color: '#a8a0f0', prompt: 'Create an image of a golden temple at dusk' },
-    { icon: 'sports', title: 'Follow IPL', desc: 'Live scores & updates', bg: 'rgba(80,200,150,0.14)', color: '#7fe0bd', prompt: 'Give me the latest IPL scores' },
     { icon: 'music', title: 'Create music', desc: 'AI-generated tracks', bg: 'rgba(200,110,220,0.14)', color: '#e0a0f0', prompt: 'Suggest a lo-fi track structure for studying' },
     { icon: 'help', title: 'Help me learn', desc: 'Tutoring & explanations', bg: 'rgba(90,140,230,0.14)', color: '#9dc0f5', prompt: 'Explain how neural networks learn' },
     { icon: 'sun', title: 'Boost my day', desc: 'Motivation & insights', bg: 'rgba(230,160,60,0.15)', color: '#f0c087', prompt: 'Give me a quick motivational boost' },
