@@ -269,7 +269,7 @@ const HomePage = ({ onUsePrompt, userProfile }) => {
       </div>
 
       <div style={{ marginTop: '34px', fontSize: '12.5px', color: 'var(--pragna-text-muted)', opacity: 0.7 }}>
-        Powered by advanced AI · Responses may vary · <span style={{ textDecoration: 'underline', cursor: 'pointer' }}>Privacy</span>
+        Powered by EtherX Innovations Pvt Ltd · Responses may vary
       </div>
     </div>
   )
