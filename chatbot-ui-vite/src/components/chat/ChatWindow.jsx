@@ -429,10 +429,6 @@ export default function ChatWindow() {
               </h1>
               <p style={{ margin: 0, fontSize: '15px', color: 'var(--pragna-text-muted)', maxWidth: '440px', lineHeight: 1.5 }}>
                 Explore, create, or ask anything — Pragna adapts to how you work.
-              </p>
-            </div>
-            <div style={{ width: '56px', height: '56px', flexShrink: 0, borderRadius: '16px', background: 'linear-gradient(135deg, var(--pragna-gold-soft), var(--pragna-gold-deep))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--pragna-bg)', fontWeight: 800, fontSize: '24px', boxShadow: '0 12px 28px rgba(0,0,0,0.42), 0 0 42px rgba(212,175,55,0.30)' }}>
-              P
             </div>
           </div>
 
